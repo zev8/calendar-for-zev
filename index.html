@@ -42,17 +42,8 @@
         .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
         .scrollbar-thin::-webkit-scrollbar-thumb { background-color: rgba(156, 163, 175, 0.3); border-radius: 4px; }
         *:focus { outline: none; }
-        @keyframes shake {
-            0%, 100% { transform: translateX(0); }
-            10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }
-            20%, 40%, 60%, 80% { transform: translateX(4px); }
-        }
-        .animate-shake { animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both; }
-        .highlight { background-color: #fde047; color: black; }
-        
-        /* Loading Spinner */
-        .spinner { border: 2px solid rgba(0,0,0,0.1); border-left-color: currentColor; border-radius: 50%; width: 16px; height: 16px; animation: spin 1s linear infinite; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        /* Silky smooth transitions */
+        .transition-silky { transition: all 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94); }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-900 antialiased overflow-hidden transition-colors duration-300">
@@ -79,13 +70,14 @@
             Moon, Sun, Eye, EyeOff, Download, Maximize2, Clock, Plus, Trash2, Edit2, 
             Check, X, Lock, Archive, Search, Settings, HelpCircle, Bell, Menu, Upload, 
             FolderOpen, Save, HardDrive, FileJson, RefreshCw, Link as LinkIcon, Palette,
-            Cloud, Wifi, WifiOff, Copy, LogOut, FileDown, FileUp, LayoutGrid, Rows
+            Cloud, Wifi, WifiOff, Copy, LogOut, FileDown, FileUp, LayoutGrid, Rows,
+            Smartphone, Monitor
         } from 'lucide-react';
         import { 
             format, addMonths, subMonths, startOfMonth, endOfMonth, 
             startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay,
             addDays, subDays, isToday, setMonth, setYear, getYear, getMonth, parseISO,
-            addWeeks, subWeeks
+            addWeeks, subWeeks, addYears, subYears
         } from 'date-fns';
         import { enUS } from 'date-fns/locale';
         import { motion, AnimatePresence } from 'framer-motion';
@@ -159,7 +151,7 @@
         ];
         
         const ENTRY_BG_COLORS = [
-            { name: 'Default', class: '', code: 'transparent' },
+            { name: 'Default', class: 'bg-white', code: '#ffffff' }, 
             { name: 'Warm Red', class: 'bg-red-50 dark:bg-red-900/20', code: '#fef2f2' },
             { name: 'Orange', class: 'bg-orange-50 dark:bg-orange-900/20', code: '#fff7ed' },
             { name: 'Amber', class: 'bg-amber-50 dark:bg-amber-900/20', code: '#fffbeb' },
@@ -171,138 +163,77 @@
             { name: 'Rose', class: 'bg-rose-50 dark:bg-rose-900/20', code: '#fff1f2' },
         ];
 
+        const PAGE_TRANSITION = { type: "tween", ease: "circOut", duration: 0.25 };
         const generateId = () => Math.random().toString(36).substr(2, 9);
 
         // --- Lock Screen ---
         function LockScreen({ onUnlock, theme }) {
             const [password, setPassword] = useState('');
-            const [error, setError] = useState(false);
             const [shake, setShake] = useState(false);
-            
-            const handleUnlock = (e) => {
-                if(e) e.preventDefault();
-                onUnlock();
-            };
-
+            const handleUnlock = (e) => { if(e) e.preventDefault(); onUnlock(); };
             useEffect(() => {
                 const handleKeyDown = (e) => { if (e.key === 'Escape') onUnlock(); };
                 window.addEventListener('keydown', handleKeyDown);
                 return () => window.removeEventListener('keydown', handleKeyDown);
             }, [onUnlock]);
-            
             return (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className={`fixed inset-0 z-50 flex items-center justify-center ${theme.lockBg} ${theme.text}`}>
                     <div className={`flex flex-col items-center gap-6 p-10 rounded-3xl w-full max-w-sm ${shake ? 'animate-shake' : ''}`}>
-                        <div 
-                            onClick={handleUnlock}
-                            className={`w-20 h-20 rounded-2xl flex items-center justify-center shadow-lg mb-2 bg-white border ${theme.border} cursor-pointer active:scale-95 transition-transform`}
-                        >
-                            <Lock size={32} className="text-gray-900" />
-                        </div>
-                        <div className="text-center">
-                            <h1 className="text-2xl font-semibold">Welcome back</h1>
-                            <p className={`text-sm mt-2 ${theme.subText}`}>Tap icon to unlock</p>
-                        </div>
-                        
-                        <form onSubmit={handleUnlock} className="w-full relative opacity-0 h-0 overflow-hidden">
-                             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-                        </form>
-
-                        <button onClick={handleUnlock} className="w-full py-3.5 rounded-xl font-medium shadow-sm bg-gray-900 text-white hover:bg-gray-800 active:scale-95 transition-all">
-                            Enter Diary
-                        </button>
+                        <div onClick={handleUnlock} className={`w-20 h-20 rounded-2xl flex items-center justify-center shadow-lg mb-2 bg-white border ${theme.border} cursor-pointer active:scale-95 transition-transform`}><Lock size={32} className="text-gray-900" /></div>
+                        <div className="text-center"><h1 className="text-2xl font-semibold">Welcome back</h1><p className={`text-sm mt-2 ${theme.subText}`}>Tap icon to unlock</p></div>
+                        <form onSubmit={handleUnlock} className="w-full relative opacity-0 h-0 overflow-hidden"><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></form>
+                        <button onClick={handleUnlock} className="w-full py-3.5 rounded-xl font-medium shadow-sm bg-gray-900 text-white hover:bg-gray-800 active:scale-95 transition-all">Enter Diary</button>
                     </div>
                 </motion.div>
             );
         }
 
-        // --- Cloud Settings Modal (Modified for Safe Sync) ---
+        // --- Cloud Settings Modal ---
         function CloudSettingsModal({ isOpen, onClose, config, onConnectSuccess, onDisconnect, theme }) {
             const [token, setToken] = useState(config.token || '');
             const [gistId, setGistId] = useState(config.gistId || '');
             const [isLoading, setIsLoading] = useState(false);
             const [error, setError] = useState('');
-
-            useEffect(() => {
-                 setToken(config.token || '');
-                 setGistId(config.gistId || '');
-            }, [config, isOpen]);
-
+            useEffect(() => { setToken(config.token || ''); setGistId(config.gistId || ''); }, [config, isOpen]);
             const handleConnect = async (isNew) => {
                 if (!token) return setError('Token is required');
-                setIsLoading(true);
-                setError('');
+                setIsLoading(true); setError('');
                 try {
                     let id = gistId;
                     let data = null;
-
                     if (isNew) {
-                        // Creating new: Safe to overwrite/create
                         const newGist = await createGist(token, { calendars: [], entries: {}, entryColors: {}, themeMode: 'light' });
                         id = newGist.id;
                     } else {
-                        // Connecting existing: MUST READ FIRST
                         if (!id) return setError('Gist ID is required for existing connection');
                         data = await getGist(token, id);
                         if (!data) throw new Error("Could not retrieve data from Gist");
                     }
-                    
-                    // Crucial Step: Pass data back to App to update state BEFORE saving config
-                    onConnectSuccess(token, id, data);
-                    onClose();
-                } catch (e) {
-                    setError(e.message);
-                } finally {
-                    setIsLoading(false);
-                }
+                    onConnectSuccess(token, id, data); onClose();
+                } catch (e) { setError(e.message); } finally { setIsLoading(false); }
             };
-
             if (!isOpen) return null;
-
             return (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95 duration-200">
                     <div className={`w-full max-w-md p-6 rounded-2xl shadow-2xl ${theme.card} ${theme.text} border ${theme.border}`}>
                         <div className="flex justify-between items-center mb-6">
-                            <h2 className="text-lg font-semibold flex items-center gap-2"><Cloud size={20}/> Cloud Sync (GitHub)</h2>
+                            <h2 className="text-lg font-semibold flex items-center gap-2"><Cloud size={20}/> Cloud Sync</h2>
                             <button onClick={onClose}><X size={18} className={theme.subText}/></button>
                         </div>
-                        
                         {config.token && config.gistId ? (
                             <div className="space-y-4">
-                                <div className={`p-4 rounded-lg bg-green-50 border border-green-100 text-green-800 text-sm`}>
-                                    <div className="flex items-center gap-2 font-medium mb-1"><Wifi size={16}/> Connected</div>
-                                    <p className="opacity-80">Your diary is syncing to GitHub Gist.</p>
-                                </div>
-                                <div>
-                                    <label className="text-xs font-medium uppercase opacity-50 block mb-1">Gist ID (Copy this for other devices)</label>
-                                    <div className="flex gap-2">
-                                        <code className="flex-1 p-2 bg-gray-100 rounded text-xs truncate">{config.gistId}</code>
-                                        <button onClick={() => navigator.clipboard.writeText(config.gistId)} className="p-2 hover:bg-gray-200 rounded"><Copy size={14}/></button>
-                                    </div>
-                                </div>
+                                <div className={`p-4 rounded-lg bg-green-50 border border-green-100 text-green-800 text-sm`}><div className="flex items-center gap-2 font-medium mb-1"><Wifi size={16}/> Connected</div><p className="opacity-80">Your diary is syncing to GitHub Gist.</p></div>
+                                <div className="flex gap-2"><code className="flex-1 p-2 bg-gray-100 rounded text-xs truncate">{config.gistId}</code><button onClick={() => navigator.clipboard.writeText(config.gistId)} className="p-2 hover:bg-gray-200 rounded"><Copy size={14}/></button></div>
                                 <button onClick={onDisconnect} className="w-full py-2.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 text-sm font-medium mt-4">Disconnect</button>
                             </div>
                         ) : (
                             <div className="space-y-4">
-                                <div>
-                                    <label className="text-xs font-medium uppercase opacity-50 block mb-1">GitHub Personal Access Token</label>
-                                    <input type="password" value={token} onChange={e=>setToken(e.target.value)} placeholder="ghp_xxxxxxxxxxxx" className={`w-full p-2.5 rounded-lg border ${theme.border} bg-transparent text-sm focus:ring-2 focus:ring-gray-200`} />
-                                    <p className="text-[10px] mt-1 opacity-50">Requires "gist" scope.</p>
-                                </div>
+                                <input type="password" value={token} onChange={e=>setToken(e.target.value)} placeholder="GitHub Personal Token (ghp_...)" className={`w-full p-2.5 rounded-lg border ${theme.border} bg-transparent text-sm focus:ring-2 focus:ring-gray-200`} />
                                 <div className="grid grid-cols-2 gap-3 pt-2">
-                                    <button onClick={() => handleConnect(true)} disabled={isLoading} className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-gray-200 hover:border-gray-400 hover:bg-gray-50 transition-all">
-                                        <Plus size={20} className="opacity-50"/>
-                                        <span className="text-sm font-medium">New Gist</span>
-                                    </button>
-                                    <button onClick={() => { if(!gistId) { setError('Enter Gist ID below'); return; } handleConnect(false); }} disabled={isLoading} className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-gray-200 hover:border-gray-400 hover:bg-gray-50 transition-all">
-                                        <Download size={20} className="opacity-50"/>
-                                        <span className="text-sm font-medium">Load Existing</span>
-                                    </button>
+                                    <button onClick={() => handleConnect(true)} disabled={isLoading} className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-gray-200 hover:border-gray-400 hover:bg-gray-50 transition-all"><Plus size={20} className="opacity-50"/><span className="text-sm font-medium">New Gist</span></button>
+                                    <button onClick={() => { if(!gistId) { setError('Enter Gist ID'); return; } handleConnect(false); }} disabled={isLoading} className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-gray-200 hover:border-gray-400 hover:bg-gray-50 transition-all"><Download size={20} className="opacity-50"/><span className="text-sm font-medium">Load Existing</span></button>
                                 </div>
-                                <div>
-                                    <label className="text-xs font-medium uppercase opacity-50 block mb-1">Or Existing Gist ID</label>
-                                    <input value={gistId} onChange={e=>setGistId(e.target.value)} placeholder="e.g. 8f44..." className={`w-full p-2.5 rounded-lg border ${theme.border} bg-transparent text-sm focus:ring-2 focus:ring-gray-200`} />
-                                </div>
+                                <input value={gistId} onChange={e=>setGistId(e.target.value)} placeholder="Or Existing Gist ID" className={`w-full p-2.5 rounded-lg border ${theme.border} bg-transparent text-sm focus:ring-2 focus:ring-gray-200`} />
                                 {error && <p className="text-xs text-red-500">{error}</p>}
                                 {isLoading && <p className="text-xs text-center opacity-50">Connecting...</p>}
                             </div>
@@ -314,30 +245,25 @@
 
         // --- Main App ---
         function App() {
-            // Screen Size Detection
-            const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-            
-            // Data State
+            const [isMobileMode, setIsMobileMode] = useState(window.innerWidth < 768);
             const [calendars, setCalendars] = useState([{ id: 'default', name: 'My Diary', colorIndex: 4 }]);
             const [entries, setEntries] = useState({ 'default': {} });
             const [entryColors, setEntryColors] = useState({});
             const [activeCalendarId, setActiveCalendarId] = useState('default');
             const [visibleCalendarIds, setVisibleCalendarIds] = useState(new Set(['default']));
             
-            // UI State
             const [currentDate, setCurrentDate] = useState(new Date());
             const [selectedDate, setSelectedDate] = useState(new Date());
-            const [view, setView] = useState(window.innerWidth < 768 ? 'week' : 'month'); // Default to week on mobile
+            const [view, setView] = useState(window.innerWidth < 768 ? 'week' : 'month');
             const [themeMode, setThemeMode] = useState('light');
-            const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 768); // Default closed on mobile
+            const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 768);
             const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
             const [isLocked, setIsLocked] = useState(true);
             const [searchQuery, setSearchQuery] = useState('');
             const [isCloudModalOpen, setIsCloudModalOpen] = useState(false);
 
-            // Storage State
             const [githubConfig, setGithubConfig] = useState({ token: '', gistId: '' });
-            const [saveStatus, setSaveStatus] = useState('idle'); // idle, saving, saved, error
+            const [saveStatus, setSaveStatus] = useState('idle');
             const [lastSaved, setLastSaved] = useState(null);
             
             const theme = THEMES[themeMode];
@@ -346,85 +272,49 @@
             const saveTimeoutRef = useRef(null);
             const activityTimerRef = useRef(null);
 
-            // Handle Resize
-            useEffect(() => {
-                const handleResize = () => {
-                    const mobile = window.innerWidth < 768;
-                    setIsMobile(mobile);
-                };
-                window.addEventListener('resize', handleResize);
-                return () => window.removeEventListener('resize', handleResize);
-            }, []);
-
-            // Initial Load
             useEffect(() => {
                 const load = async () => {
-                    // Load Settings
                     const savedTheme = localStorage.getItem('diary_theme');
                     if (savedTheme && THEMES[savedTheme]) setThemeMode(savedTheme);
-                    
                     const savedGithub = localStorage.getItem('diary_github_config');
                     let ghConfig = null;
-                    if (savedGithub) {
-                        ghConfig = JSON.parse(savedGithub);
-                        setGithubConfig(ghConfig);
-                    }
-
-                    // Try loading from Cloud first if configured
+                    if (savedGithub) { ghConfig = JSON.parse(savedGithub); setGithubConfig(ghConfig); }
                     if (ghConfig && ghConfig.token && ghConfig.gistId) {
                         try {
                             setSaveStatus('saving');
                             const data = await getGist(ghConfig.token, ghConfig.gistId);
                             if (data) applyData(data);
                             setSaveStatus('saved');
-                        } catch (e) {
-                            console.error("Gist Load Failed", e);
-                            setSaveStatus('error');
-                        }
+                        } catch (e) { setSaveStatus('error'); }
                     } else {
-                        // Fallback to LocalStorage
                         try {
-                            const lsCals = localStorage.getItem('diary_calendars');
                             const lsEntries = localStorage.getItem('diary_entries');
+                            if (lsEntries) setEntries(JSON.parse(lsEntries));
+                            const lsCals = localStorage.getItem('diary_calendars');
+                            if (lsCals) setCalendars(JSON.parse(lsCals));
                             const lsColors = localStorage.getItem('diary_entry_colors');
-                            if (lsCals && lsEntries) {
-                                setCalendars(JSON.parse(lsCals));
-                                setEntries(JSON.parse(lsEntries));
-                                if (lsColors) setEntryColors(JSON.parse(lsColors));
-                            }
+                            if (lsColors) setEntryColors(JSON.parse(lsColors));
                         } catch (e) {}
                     }
                 };
                 load();
             }, []);
 
-            // Auto-Save Logic
             useEffect(() => {
-                // Save to LocalStorage (Always backup)
                 localStorage.setItem('diary_entries', JSON.stringify(entries));
                 localStorage.setItem('diary_entry_colors', JSON.stringify(entryColors));
                 localStorage.setItem('diary_calendars', JSON.stringify(calendars));
                 localStorage.setItem('diary_theme', themeMode);
-
                 if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-                
-                // Debounced Cloud Save
                 if (githubConfig.token) {
                     setSaveStatus('saving');
                     saveTimeoutRef.current = setTimeout(async () => {
                         const data = { calendars, entries, entryColors, themeMode };
                         try {
-                            if (githubConfig.token && githubConfig.gistId) {
-                                await updateGist(githubConfig.token, githubConfig.gistId, data);
-                            }
-                            setLastSaved(new Date());
-                            setSaveStatus('saved');
-                            setTimeout(() => setSaveStatus('idle'), 2000);
-                        } catch (err) {
-                            console.error("Auto-save failed:", err);
-                            setSaveStatus('error');
-                        }
-                    }, 2000); // 2 second delay
+                            if (githubConfig.token && githubConfig.gistId) await updateGist(githubConfig.token, githubConfig.gistId, data);
+                            setLastSaved(new Date()); setSaveStatus('saved');
+                        } catch (err) { setSaveStatus('error'); }
+                    }, 2000);
                 }
             }, [entries, entryColors, calendars, themeMode, githubConfig]);
 
@@ -434,13 +324,9 @@
                 if (data.entries) setEntries(data.entries);
                 if (data.entryColors) setEntryColors(data.entryColors);
                 if (data.themeMode) setThemeMode(data.themeMode);
-                if (data.calendars && data.calendars.length > 0) {
-                     setActiveCalendarId(data.calendars[0].id);
-                     setVisibleCalendarIds(new Set([data.calendars[0].id]));
-                }
+                if (data.calendars && data.calendars.length > 0) { setActiveCalendarId(data.calendars[0].id); setVisibleCalendarIds(new Set([data.calendars[0].id])); }
             };
 
-            // Activity Timer for Lock Screen
             const resetActivityTimer = () => {
                 if (activityTimerRef.current) clearTimeout(activityTimerRef.current);
                 activityTimerRef.current = setTimeout(() => { setIsLocked(true); }, 5 * 60 * 1000);
@@ -452,46 +338,31 @@
                 return () => { events.forEach(e => window.removeEventListener(e, handler)); };
             }, [isLocked]);
 
-            // Handlers
-            const handleEntryChange = (dateStr, text) => {
-                setEntries(prev => ({ ...prev, [activeCalendarId]: { ...(prev[activeCalendarId] || {}), [dateStr]: text } }));
-            };
+            const handleEntryChange = (dateStr, text) => setEntries(prev => ({ ...prev, [activeCalendarId]: { ...(prev[activeCalendarId] || {}), [dateStr]: text } }));
+            const handleColorChange = (dateStr, colorIndex) => setEntryColors(prev => ({ ...prev, [activeCalendarId]: { ...(prev[activeCalendarId] || {}), [dateStr]: colorIndex } }));
             
-            const handleColorChange = (dateStr, colorIndex) => {
-                setEntryColors(prev => ({ ...prev, [activeCalendarId]: { ...(prev[activeCalendarId] || {}), [dateStr]: colorIndex } }));
-            };
-
-            // Safe Connect: Apply Data FIRST, then Save Config
             const handleConnectSuccess = (token, gistId, data) => {
-                if(data) {
-                    applyData(data);
-                }
+                if(data) applyData(data);
                 const config = { token, gistId };
                 setGithubConfig(config);
                 localStorage.setItem('diary_github_config', JSON.stringify(config));
-                setSaveStatus('saved'); // Don't trigger 'saving' immediately, assume synced
+                setSaveStatus('saved');
             };
 
             const handleCloudDisconnect = () => {
-                if(confirm("Disconnect cloud sync? Your data will remain on Gist but stop syncing here.")){
+                if(confirm("Disconnect cloud sync?")) {
                     setGithubConfig({ token: '', gistId: '' });
                     localStorage.removeItem('diary_github_config');
                     setIsCloudModalOpen(false);
                 }
             };
 
-            // Universal Backup Functions (Works on Mobile & Desktop)
             const handleExportBackup = () => {
                 const data = { calendars, entries, entryColors, themeMode };
                 const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `zev_diary_backup_${format(new Date(), 'yyyy-MM-dd')}.json`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
+                const a = document.createElement('a'); a.href = url; a.download = `zev_diary_backup_${format(new Date(), 'yyyy-MM-dd')}.json`;
+                document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
             };
 
             const handleImportBackup = (event) => {
@@ -501,146 +372,87 @@
                 reader.onload = (e) => {
                     try {
                         const data = JSON.parse(e.target.result);
-                        if (confirm("Restore backup? Current entries will be updated.")) {
-                            applyData(data);
-                            alert("Backup restored successfully!");
-                        }
-                    } catch (err) {
-                        alert("Failed to parse file.");
-                    }
+                        if (confirm("Restore backup?")) { applyData(data); alert("Success!"); }
+                    } catch (err) { alert("Failed to parse file."); }
                 };
                 reader.readAsText(file);
                 event.target.value = null; 
             };
 
-            const handleUnlock = () => {
-                setIsLocked(false);
+            const handleNavigate = (direction) => {
+                if (view === 'month') setCurrentDate(prev => direction === 'prev' ? subMonths(prev, 1) : addMonths(prev, 1));
+                else if (view === 'week') setCurrentDate(prev => direction === 'prev' ? subWeeks(prev, 1) : addWeeks(prev, 1));
+                else setSelectedDate(prev => {
+                    const newDate = direction === 'prev' ? subDays(prev, 1) : addDays(prev, 1);
+                    if (!isSameMonth(newDate, currentDate)) setCurrentDate(newDate);
+                    return newDate;
+                });
             };
 
-            const handleNavigate = (direction) => {
-                if (view === 'month') {
-                    setCurrentDate(prev => direction === 'prev' ? subMonths(prev, 1) : addMonths(prev, 1));
-                } else if (view === 'week') {
-                    setCurrentDate(prev => direction === 'prev' ? subWeeks(prev, 1) : addWeeks(prev, 1));
-                } else {
-                    setSelectedDate(prev => {
-                        const newDate = direction === 'prev' ? subDays(prev, 1) : addDays(prev, 1);
-                        if (!isSameMonth(newDate, currentDate)) setCurrentDate(newDate);
-                        return newDate;
-                    });
-                }
+            const toggleLayoutMode = () => {
+                const newMode = !isMobileMode;
+                setIsMobileMode(newMode);
+                if (newMode) { setIsSidebarOpen(false); setView('week'); } else { setIsSidebarOpen(true); setView('month'); }
             };
             
-            // --- Renders ---
             const getEntry = (date) => entries[activeCalendarId]?.[format(date, 'yyyy-MM-dd')] || '';
 
             return (
                 <div className={`flex h-screen w-full overflow-hidden ${theme.bg} ${theme.text}`}>
                     <AnimatePresence>
-                        {isLocked && <LockScreen key="lock" onUnlock={handleUnlock} theme={theme} />}
+                        {isLocked && <LockScreen key="lock" onUnlock={() => setIsLocked(false)} theme={theme} />}
                     </AnimatePresence>
                     
-                    <CloudSettingsModal 
-                        isOpen={isCloudModalOpen} 
-                        onClose={() => setIsCloudModalOpen(false)} 
-                        config={githubConfig} 
-                        onConnectSuccess={handleConnectSuccess}
-                        onDisconnect={handleCloudDisconnect}
-                        theme={theme}
-                    />
-
-                    {/* Hidden Import Input */}
+                    <CloudSettingsModal isOpen={isCloudModalOpen} onClose={() => setIsCloudModalOpen(false)} config={githubConfig} onConnectSuccess={handleConnectSuccess} onDisconnect={handleCloudDisconnect} theme={theme} />
                     <input type="file" ref={importInputRef} style={{display:'none'}} accept=".json" onChange={handleImportBackup} />
 
-                    {/* Sidebar */}
-                    <motion.div animate={{ width: isSidebarOpen ? 260 : 0, opacity: isSidebarOpen ? 1 : 0 }} className={`flex-shrink-0 flex flex-col ${theme.sidebar} h-full z-20 pt-safe-top absolute md:relative shadow-2xl md:shadow-none h-full`}>
-                        <div className="p-5 flex flex-col h-full pt-6">
-                            {/* Mobile Close Button */}
-                            <button onClick={() => setIsSidebarOpen(false)} className="md:hidden absolute top-4 right-4 p-2 text-gray-400"><X size={20}/></button>
+                    <AnimatePresence>
+                        {isMobileMode && isSidebarOpen && (
+                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 z-30 backdrop-blur-sm" onClick={() => setIsSidebarOpen(false)} />
+                        )}
+                    </AnimatePresence>
 
+                    <motion.div animate={{ width: isSidebarOpen ? 260 : 0, x: isSidebarOpen ? 0 : (isMobileMode ? -260 : 0), opacity: (isSidebarOpen || isMobileMode) ? 1 : 0 }} className={`flex-shrink-0 flex flex-col ${theme.sidebar} h-full z-40 pt-safe-top ${isMobileMode ? 'fixed top-0 left-0 shadow-2xl' : 'relative'}`}>
+                        <div className="p-5 flex flex-col h-full pt-6 w-[260px]">
+                            {isMobileMode && <button onClick={() => setIsSidebarOpen(false)} className="absolute top-4 right-4 p-2 text-gray-400"><X size={20}/></button>}
                             <div className="space-y-1 flex-1 overflow-y-auto scrollbar-thin mt-8 md:mt-0">
-                                <SidebarItem icon={<LayoutGrid size={18} />} label="Month View" active={view==='month'} theme={theme} onClick={() => { setView('month'); if(isMobile) setIsSidebarOpen(false); }} />
-                                <SidebarItem icon={<Rows size={18} />} label="Week View" active={view==='week'} theme={theme} onClick={() => { setView('week'); if(isMobile) setIsSidebarOpen(false); }} />
-                                <SidebarItem icon={<Maximize2 size={18} />} label="Focus Mode" theme={theme} onClick={() => { setSelectedDate(new Date()); setView('day'); if(isMobile) setIsSidebarOpen(false); }} />
-                                
+                                <SidebarItem icon={<LayoutGrid size={18} />} label="Month View" active={view==='month'} theme={theme} onClick={() => { setView('month'); if(isMobileMode) setIsSidebarOpen(false); }} />
+                                <SidebarItem icon={<Rows size={18} />} label="Week View" active={view==='week'} theme={theme} onClick={() => { setView('week'); if(isMobileMode) setIsSidebarOpen(false); }} />
+                                <SidebarItem icon={<Maximize2 size={18} />} label="Focus Mode" theme={theme} onClick={() => { setSelectedDate(new Date()); setView('day'); if(isMobileMode) setIsSidebarOpen(false); }} />
                                 <div className="pt-6 mt-2">
                                     <p className={`px-3 text-xs font-medium mb-3 ${theme.subText} uppercase tracking-wider`}>Calendars</p>
                                     {calendars.map(cal => (
-                                        <CalendarListItem 
-                                            key={cal.id} 
-                                            calendar={cal} 
-                                            isActive={activeCalendarId === cal.id} 
-                                            isVisible={visibleCalendarIds.has(cal.id)}
-                                            theme={theme}
+                                        <CalendarListItem key={cal.id} calendar={cal} isActive={activeCalendarId === cal.id} isVisible={visibleCalendarIds.has(cal.id)} theme={theme}
                                             onClick={() => { setActiveCalendarId(cal.id); setVisibleCalendarIds(prev => new Set([...prev, cal.id])); }}
-                                            onToggleVisibility={() => { 
-                                                const newSet = new Set(visibleCalendarIds);
-                                                if (newSet.has(cal.id)) { if(newSet.size>1) newSet.delete(cal.id); } else newSet.add(cal.id);
-                                                setVisibleCalendarIds(newSet);
-                                            }}
+                                            onToggleVisibility={() => { const newSet = new Set(visibleCalendarIds); if (newSet.has(cal.id)) { if(newSet.size>1) newSet.delete(cal.id); } else newSet.add(cal.id); setVisibleCalendarIds(newSet); }}
                                             onRename={(n) => setCalendars(calendars.map(c => c.id === cal.id ? { ...c, name: n } : c))}
                                             onChangeColor={(i) => setCalendars(calendars.map(c => c.id === cal.id ? { ...c, colorIndex: i } : c))}
-                                            onDelete={() => {
-                                                if(calendars.length<=1) return;
-                                                setCalendars(calendars.filter(c=>c.id!==cal.id));
-                                                setActiveCalendarId(calendars.find(c=>c.id!==cal.id).id);
-                                            }}
+                                            onDelete={() => { if(calendars.length<=1) return; setCalendars(calendars.filter(c=>c.id!==cal.id)); setActiveCalendarId(calendars.find(c=>c.id!==cal.id).id); }}
                                         />
                                     ))}
-                                    <button onClick={() => {
-                                        const newId = generateId();
-                                        setCalendars([...calendars, { id: newId, name: 'New Calendar', colorIndex: calendars.length % 7 }]);
-                                        setActiveCalendarId(newId);
-                                        setVisibleCalendarIds(prev => new Set([...prev, newId]));
-                                    }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${theme.subText} hover:text-gray-900`}><Plus size={14} /> Add calendar</button>
+                                    <button onClick={() => { const newId = generateId(); setCalendars([...calendars, { id: newId, name: 'New Calendar', colorIndex: calendars.length % 7 }]); setActiveCalendarId(newId); setVisibleCalendarIds(prev => new Set([...prev, newId])); }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm ${theme.subText} hover:text-gray-900`}><Plus size={14} /> Add calendar</button>
                                 </div>
                             </div>
-                            
-                            {/* Footer / Status Area */}
                             <div className={`mt-auto pt-4 border-t ${theme.border} space-y-2`}>
-                                {/* Cloud Status */}
-                                <button onClick={() => setIsCloudModalOpen(true)} className={`w-full flex items-center gap-2 p-2 rounded-lg text-xs font-medium transition-colors ${githubConfig.token ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
-                                    {githubConfig.token ? <Wifi size={14} /> : <WifiOff size={14}/>}
-                                    <span className="flex-1 text-left">{githubConfig.token ? 'Cloud Synced' : 'Cloud Off'}</span>
-                                    {githubConfig.token && <Settings size={12} className="opacity-50"/>}
-                                </button>
-
-                                {/* Import / Export */}
-                                <div className="grid grid-cols-2 gap-2">
-                                    <button onClick={() => importInputRef.current?.click()} className={`flex items-center justify-center gap-1.5 p-2 rounded-lg border ${theme.border} hover:bg-gray-50 text-xs ${theme.subText}`} title="Import Backup">
-                                        <FileUp size={14} /> Import
-                                    </button>
-                                    <button onClick={handleExportBackup} className={`flex items-center justify-center gap-1.5 p-2 rounded-lg border ${theme.border} hover:bg-gray-50 text-xs ${theme.subText}`} title="Save to File">
-                                        <FileDown size={14} /> Export
-                                    </button>
-                                </div>
-
-                                {/* Save Indicator */}
-                                <div className={`flex items-center gap-2 px-1 py-1 text-[10px] ${saveStatus === 'error' ? 'text-red-500' : theme.subText}`}>
-                                    {saveStatus === 'saving' ? <div className="spinner border-gray-400"/> : (saveStatus === 'saved' ? <Check size={12}/> : <div className="w-3"/>)}
-                                    <span>{saveStatus === 'saving' ? 'Syncing...' : (saveStatus === 'saved' ? 'Saved ' + (lastSaved ? format(lastSaved, 'HH:mm') : '') : (saveStatus === 'error' ? 'Sync Failed' : 'Ready'))}</span>
-                                </div>
+                                <button onClick={() => setIsCloudModalOpen(true)} className={`w-full flex items-center gap-2 p-2 rounded-lg text-xs font-medium transition-colors ${githubConfig.token ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>{githubConfig.token ? <Wifi size={14} /> : <WifiOff size={14}/>}<span className="flex-1 text-left">{githubConfig.token ? 'Cloud Synced' : 'Cloud Off'}</span></button>
+                                <div className="grid grid-cols-2 gap-2"><button onClick={() => importInputRef.current?.click()} className={`flex items-center justify-center gap-1.5 p-2 rounded-lg border ${theme.border} hover:bg-gray-50 text-xs ${theme.subText}`}><FileUp size={14} /> Import</button><button onClick={handleExportBackup} className={`flex items-center justify-center gap-1.5 p-2 rounded-lg border ${theme.border} hover:bg-gray-50 text-xs ${theme.subText}`}><FileDown size={14} /> Export</button></div>
+                                <div className={`flex items-center gap-2 px-1 py-1 text-[10px] ${saveStatus === 'error' ? 'text-red-500' : theme.subText}`}>{saveStatus === 'saving' ? <div className="spinner border-gray-400"/> : (saveStatus === 'saved' ? <Check size={12}/> : <div className="w-3"/>)}<span>{saveStatus === 'saving' ? 'Syncing...' : (saveStatus === 'saved' ? 'Saved ' + (lastSaved ? format(lastSaved, 'HH:mm') : '') : (saveStatus === 'error' ? 'Sync Failed' : 'Ready'))}</span></div>
                             </div>
                         </div>
                     </motion.div>
 
-                    {/* Main Content */}
                     <div className={`flex-1 flex flex-col h-full overflow-hidden relative ${theme.bg}`}>
-                        {/* Header */}
                         <header className={`flex-shrink-0 px-4 md:px-8 pt-6 pb-2 ${theme.header} border-b ${theme.border}`}>
                             <div className="flex justify-between items-center mb-4">
                                 <div className="flex items-center gap-4">
-                                    <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className={`p-2 -ml-2 ${theme.subText}`}><Menu size={20}/></button>
+                                    {(isMobileMode || !isSidebarOpen) && <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className={`p-2 -ml-2 ${theme.subText}`}><Menu size={20}/></button>}
                                     <div className="flex flex-col cursor-pointer group" onClick={() => setIsDatePickerOpen(!isDatePickerOpen)}>
-                                        <div className="flex items-center gap-2">
-                                            <h1 className={`text-xl md:text-2xl font-bold ${theme.text}`}>{format(currentDate, 'MMMM yyyy')}</h1>
-                                            <ChevronDown size={18} className={`${theme.subText}`} />
-                                        </div>
+                                        <div className="flex items-center gap-2"><h1 className={`text-xl md:text-2xl font-bold ${theme.text}`}>{format(currentDate, 'MMMM yyyy')}</h1><ChevronDown size={18} className={`${theme.subText}`} /></div>
                                         {isDatePickerOpen && <div className="absolute top-16 z-50"><DatePicker currentDate={currentDate} onChange={(d) => { setCurrentDate(d); setIsDatePickerOpen(false); }} theme={theme} /></div>}
                                     </div>
-                                    <div className={`hidden md:flex items-center ${theme.card} border ${theme.border} rounded-lg shadow-sm h-9`}>
+                                    <div className={`flex items-center ${theme.card} border ${theme.border} rounded-lg shadow-sm h-9 ml-2 md:ml-0`}>
                                         <button onClick={() => handleNavigate('prev')} className={`px-2 h-full border-r ${theme.border} hover:bg-gray-50`}><ChevronLeft size={16}/></button>
-                                        <button onClick={() => { const today=new Date(); setCurrentDate(today); setSelectedDate(today); }} className={`px-3 h-full text-xs font-semibold uppercase`}>Today</button>
+                                        <button onClick={() => { const today=new Date(); setCurrentDate(today); setSelectedDate(today); }} className={`px-3 h-full text-xs font-semibold uppercase`}>{isMobileMode ? <span className="text-[10px]">T</span> : 'Today'}</button>
                                         <button onClick={() => handleNavigate('next')} className={`px-2 h-full border-l ${theme.border} hover:bg-gray-50`}><ChevronRight size={16}/></button>
                                     </div>
                                 </div>
@@ -650,6 +462,7 @@
                                         <input ref={searchInputRef} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search" className={`pl-8 pr-2 py-1.5 rounded-lg border ${theme.border} text-sm w-48 focus:ring-1 focus:ring-gray-200 ${theme.card} ${theme.text}`} />
                                     </div>
                                     <div className="flex border rounded-lg overflow-hidden border-gray-200">
+                                        <button onClick={toggleLayoutMode} className={`p-2 transition-colors ${theme.card} ${theme.text} hover:bg-gray-100 border-r ${theme.border}`}>{isMobileMode ? <Monitor size={14}/> : <Smartphone size={14}/>}</button>
                                         <ThemeBtn mode="light" current={themeMode} set={setThemeMode} icon={<Sun size={14} />} />
                                         <ThemeBtn mode="dark" current={themeMode} set={setThemeMode} icon={<Moon size={14} />} />
                                         <ThemeBtn mode="eyeCare" current={themeMode} set={setThemeMode} icon={<Eye size={14} />} />
@@ -658,57 +471,14 @@
                             </div>
                         </header>
 
-                        {/* Views */}
                         <main className={`flex-1 overflow-hidden relative ${theme.bg}`} onClick={() => setIsDatePickerOpen(false)}>
                              <AnimatePresence mode="wait">
                                 {view === 'month' ? (
-                                    <CalendarView 
-                                        key="month" 
-                                        viewType="month"
-                                        currentDate={currentDate} 
-                                        entries={entries}
-                                        entryColors={entryColors}
-                                        calendars={calendars}
-                                        activeCalendarId={activeCalendarId}
-                                        visibleCalendarIds={visibleCalendarIds}
-                                        theme={theme} 
-                                        onEntryChange={handleEntryChange}
-                                        onColorChange={handleColorChange}
-                                        onDayClick={(date) => setSelectedDate(date)}
-                                        onDayTripleClick={(date) => { setSelectedDate(date); setView('day'); }}
-                                        selectedDate={selectedDate}
-                                        searchQuery={searchQuery}
-                                    />
+                                    <CalendarView key="month" viewType="month" currentDate={currentDate} entries={entries} entryColors={entryColors} calendars={calendars} activeCalendarId={activeCalendarId} visibleCalendarIds={visibleCalendarIds} theme={theme} onEntryChange={handleEntryChange} onColorChange={handleColorChange} onDayClick={(date) => setSelectedDate(date)} onDayTripleClick={(date) => { setSelectedDate(date); setView('day'); }} selectedDate={selectedDate} searchQuery={searchQuery} isMobileMode={isMobileMode} />
                                 ) : view === 'week' ? (
-                                     <CalendarView 
-                                        key="week" 
-                                        viewType="week"
-                                        currentDate={currentDate} 
-                                        entries={entries}
-                                        entryColors={entryColors}
-                                        calendars={calendars}
-                                        activeCalendarId={activeCalendarId}
-                                        visibleCalendarIds={visibleCalendarIds}
-                                        theme={theme} 
-                                        onEntryChange={handleEntryChange}
-                                        onColorChange={handleColorChange}
-                                        onDayClick={(date) => setSelectedDate(date)}
-                                        onDayTripleClick={(date) => { setSelectedDate(date); setView('day'); }}
-                                        selectedDate={selectedDate}
-                                        searchQuery={searchQuery}
-                                    />
+                                     <CalendarView key="week" viewType="week" currentDate={currentDate} entries={entries} entryColors={entryColors} calendars={calendars} activeCalendarId={activeCalendarId} visibleCalendarIds={visibleCalendarIds} theme={theme} onEntryChange={handleEntryChange} onColorChange={handleColorChange} onDayClick={(date) => setSelectedDate(date)} onDayTripleClick={(date) => { setSelectedDate(date); setView('day'); }} selectedDate={selectedDate} searchQuery={searchQuery} isMobileMode={isMobileMode} />
                                 ) : (
-                                    <DayView 
-                                        key="day" 
-                                        date={selectedDate} 
-                                        entry={getEntry(selectedDate)} 
-                                        calendarName={calendars.find(c => c.id === activeCalendarId)?.name}
-                                        calendarColorIndex={calendars.find(c => c.id === activeCalendarId)?.colorIndex}
-                                        theme={theme} 
-                                        onChange={(text) => handleEntryChange(format(selectedDate, 'yyyy-MM-dd'), text)}
-                                        onBack={() => setView(isMobile ? 'week' : 'month')}
-                                        searchQuery={searchQuery}
-                                    />
+                                    <DayView key="day" date={selectedDate} entry={getEntry(selectedDate)} calendarName={calendars.find(c => c.id === activeCalendarId)?.name} calendarColorIndex={calendars.find(c => c.id === activeCalendarId)?.colorIndex} theme={theme} onChange={(text) => handleEntryChange(format(selectedDate, 'yyyy-MM-dd'), text)} onBack={() => setView(isMobileMode ? 'week' : 'month')} searchQuery={searchQuery} />
                                 )}
                             </AnimatePresence>
                         </main>
@@ -719,11 +489,7 @@
 
         // --- Sub Components ---
         function SidebarItem({ icon, label, active, theme, onClick }) {
-            return (
-                <button onClick={onClick} className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium mb-0.5 ${active ? `${theme.sidebarActive} text-gray-900` : `${theme.sidebarText} hover:bg-gray-100`}`}>
-                    {icon}<span>{label}</span>
-                </button>
-            );
+            return <button onClick={onClick} className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium mb-0.5 ${active ? `${theme.sidebarActive} text-gray-900` : `${theme.sidebarText} hover:bg-gray-100`}`}>{icon}<span>{label}</span></button>;
         }
 
         function CalendarListItem({ calendar, isActive, isVisible, theme, onClick, onToggleVisibility, onRename, onChangeColor, onDelete }) {
@@ -731,22 +497,23 @@
             const [editName, setEditName] = useState(calendar.name);
             const [showColorPicker, setShowColorPicker] = useState(false);
             const color = CALENDAR_COLORS[calendar.colorIndex || 0];
+            
+            // Close picker when clicking outside logic is handled by the backdrop div inside
+            
             return (
                 <div onClick={onClick} className={`group relative flex items-center justify-between px-3 py-1.5 rounded-lg cursor-pointer transition-all text-sm ${isActive ? 'bg-gray-100' : `hover:bg-gray-50`}`}>
                     <div className="flex items-center gap-3 flex-1 overflow-hidden">
                         <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0 relative" style={{ backgroundColor: color.code }} onClick={(e) => { e.stopPropagation(); setShowColorPicker(!showColorPicker); }} />
                         {showColorPicker && (
-                            <div className="absolute top-6 left-0 z-50 p-2 bg-white rounded shadow-xl border grid grid-cols-4 gap-1 w-[120px]" onClick={e=>e.stopPropagation()}>
-                                {CALENDAR_COLORS.map((c, idx) => (
-                                    <div key={idx} className="w-5 h-5 rounded-full cursor-pointer hover:scale-110" style={{ backgroundColor: c.code }} onClick={() => { onChangeColor(idx); setShowColorPicker(false); }} />
-                                ))}
-                            </div>
+                            <>
+                                <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setShowColorPicker(false); }} />
+                                <div className="absolute top-6 left-0 z-50 p-2 bg-white rounded shadow-xl border grid grid-cols-4 gap-1 w-[120px]" onClick={e=>e.stopPropagation()}>
+                                    {CALENDAR_COLORS.map((c, idx) => <div key={idx} className="w-5 h-5 rounded-full cursor-pointer hover:scale-110" style={{ backgroundColor: c.code }} onClick={() => { onChangeColor(idx); setShowColorPicker(false); }} />)}
+                                </div>
+                            </>
                         )}
-                        {isEditing ? (
-                            <input value={editName} onChange={e => setEditName(e.target.value)} onClick={e => e.stopPropagation()} onBlur={()=>{ onRename(editName); setIsEditing(false); }} className="bg-transparent border-b border-gray-300 w-full outline-none text-xs" autoFocus />
-                        ) : (
-                            <span className={`truncate flex-1 font-medium ${!isVisible && !isActive ? 'opacity-50 line-through' : ''} ${color.value}`}>{calendar.name}</span>
-                        )}
+                        {isEditing ? <input value={editName} onChange={e => setEditName(e.target.value)} onClick={e => e.stopPropagation()} onBlur={()=>{ onRename(editName); setIsEditing(false); }} className="bg-transparent border-b border-gray-300 w-full outline-none text-xs" autoFocus />
+                        : <span className={`truncate flex-1 font-medium ${!isVisible && !isActive ? 'opacity-50 line-through' : ''} ${color.value}`}>{calendar.name}</span>}
                     </div>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                          <button onClick={(e) => { e.stopPropagation(); onToggleVisibility(); }} className={`p-0.5 rounded hover:bg-gray-200 text-gray-500`}> {isVisible ? <Eye size={12} /> : <EyeOff size={12} />} </button>
@@ -763,37 +530,33 @@
             return <span>{parts.map((part, i) => part.toLowerCase() === highlight.toLowerCase() ? <mark key={i} className="highlight rounded-sm px-0.5">{part}</mark> : <span key={i}>{part}</span>)}</span>;
         }
 
-        // Unified Calendar View (Month & Week)
-        function CalendarView({ viewType, currentDate, entries, entryColors, calendars, activeCalendarId, visibleCalendarIds, theme, onEntryChange, onColorChange, onDayClick, onDayTripleClick, selectedDate, searchQuery }) {
+        function CalendarView({ viewType, currentDate, entries, entryColors, calendars, activeCalendarId, visibleCalendarIds, theme, onEntryChange, onColorChange, onDayClick, onDayTripleClick, selectedDate, searchQuery, isMobileMode }) {
             const isMonth = viewType === 'month';
             let days;
-            
             if (isMonth) {
                 const monthStart = startOfMonth(currentDate);
                 days = eachDayOfInterval({ start: startOfWeek(monthStart, { weekStartsOn: 0 }), end: endOfWeek(endOfMonth(currentDate), { weekStartsOn: 0 }) });
             } else {
-                // Week view logic
                 days = eachDayOfInterval({ start: startOfWeek(currentDate, { weekStartsOn: 0 }), end: endOfWeek(currentDate, { weekStartsOn: 0 }) });
             }
-
             const [bgPicker, setBgPicker] = useState(null);
             const clickRef = useRef({ count: 0, lastTime: 0, id: null });
 
+            // Sort calendars: visible ones, active calendar last so it's textarea is at bottom (or active)
+            const visibleList = calendars.filter(c => visibleCalendarIds.has(c.id)).sort((a, b) => a.id === activeCalendarId ? 1 : -1);
+
             return (
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={`flex flex-col h-full ${theme.bg}`}>
-                    <div className={`grid grid-cols-7 border-b ${theme.border}`}>
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={PAGE_TRANSITION} className={`flex flex-col h-full ${theme.bg}`}>
+                    <div className={`grid grid-cols-7 border-b ${theme.border} ${!isMonth && isMobileMode ? 'hidden' : 'grid'}`}>
                         {['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map(w => <div key={w} className={`px-4 py-2 text-xs font-semibold ${theme.subText} text-center`}>{w}</div>)}
                     </div>
-                    {/* Grid Layout: Month=5 rows, Week=1 row (full height) */}
-                    <div className={`flex-1 grid grid-cols-7 ${isMonth ? 'grid-rows-5 md:grid-rows-5' : 'grid-rows-1'} overflow-y-auto`}>
+                    <div className={`flex-1 grid ${isMonth ? 'grid-cols-7 grid-rows-5' : (isMobileMode ? 'grid-cols-1 grid-rows-7' : 'grid-cols-7 grid-rows-1')} overflow-y-auto`}>
                         {days.map((day, i) => {
                             const dateStr = format(day, 'yyyy-MM-dd');
                             const isCurrent = isSameMonth(day, currentDate);
+                            // Background color logic based on ACTIVE calendar entries
                             const colorIndex = entryColors[activeCalendarId]?.[dateStr] || 0;
                             const bgColorClass = ENTRY_BG_COLORS[colorIndex]?.class || '';
-                            const txt = entries[activeCalendarId]?.[dateStr] || '';
-                            
-                            // In week view, show all days clearly. In month view, fade out other months.
                             const opacityClass = (isMonth && !isCurrent) ? 'bg-opacity-50 opacity-50' : '';
 
                             return (
@@ -805,23 +568,54 @@
                                         onDayClick(day);
                                         if (clickRef.current.count >= 3) onDayTripleClick(day);
                                     }}
-                                    className={`
-                                        relative flex flex-col border-b border-r ${theme.border} 
-                                        ${bgColorClass} ${opacityClass} 
-                                        ${isSameDay(day, selectedDate) ? 'ring-inset ring-2 ring-indigo-400' : ''} 
-                                        group transition-colors
-                                    `}
+                                    className={`relative flex flex-col border-b border-r ${theme.border} ${bgColorClass} ${opacityClass} ${isSameDay(day, selectedDate) ? 'ring-inset ring-2 ring-indigo-400' : ''} group transition-colors`}
                                 >
-                                    <div className="flex justify-between p-1">
-                                        <span className={`text-xs font-medium ${isToday(day) ? 'bg-gray-900 text-white w-6 h-6 flex items-center justify-center rounded-full' : theme.text}`}>{format(day, "d")}</span>
-                                        <button className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-gray-900" onClick={(e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setBgPicker({ dateStr, top: r.bottom, left: r.right - 120 }); }}><Palette size={12}/></button>
+                                    <div className="flex justify-between p-1 items-center flex-shrink-0">
+                                        <div className="flex items-center gap-2">
+                                            {!isMonth && isMobileMode && <span className={`text-xs font-bold ${theme.subText} uppercase w-8`}>{format(day, 'EEE')}</span>}
+                                            <span className={`text-xs font-medium ${isToday(day) ? 'bg-gray-900 text-white w-6 h-6 flex items-center justify-center rounded-full' : theme.text}`}>{format(day, "d")}</span>
+                                        </div>
+                                        <button className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-gray-600 transition-colors" onClick={(e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setBgPicker({ dateStr, top: r.bottom, left: r.right - 120 }); }}><div className="w-2 h-2 rounded-full bg-current opacity-50 hover:opacity-100"></div></button>
                                     </div>
-                                    <textarea 
-                                        value={txt} 
-                                        onChange={(e) => onEntryChange(dateStr, e.target.value)} 
-                                        className={`flex-1 w-full text-xs md:text-sm resize-none bg-transparent outline-none px-2 pb-2 leading-relaxed ${theme.text}`} 
-                                        placeholder={isMonth ? "" : "Write..."}
-                                    />
+                                    
+                                    <div className="flex-1 w-full flex flex-col gap-1 overflow-y-auto min-h-0 px-2 pb-2">
+                                        {/* Render other visible calendars as text blocks */}
+                                        {visibleList.map(cal => {
+                                            const txt = entries[cal.id]?.[dateStr];
+                                            if (!txt) return null;
+                                            
+                                            // Active Calendar -> Textarea
+                                            if (cal.id === activeCalendarId) {
+                                                return (
+                                                    <textarea 
+                                                        key={cal.id}
+                                                        value={txt} 
+                                                        onChange={(e) => onEntryChange(dateStr, e.target.value)} 
+                                                        className={`w-full text-xs md:text-sm resize-none bg-transparent outline-none leading-relaxed flex-shrink-0 ${theme.text}`} 
+                                                        placeholder={isMonth ? "" : "Write..."}
+                                                        style={{ minHeight: '1.5em' }}
+                                                    />
+                                                );
+                                            }
+                                            
+                                            // Other Calendars -> Colored Text Block
+                                            const calColor = CALENDAR_COLORS[cal.colorIndex || 0];
+                                            return (
+                                                <div key={cal.id} className={`text-xs ${calColor.value} opacity-90 truncate flex-shrink-0`}>
+                                                    <HighlightedText text={txt} highlight={searchQuery} />
+                                                </div>
+                                            );
+                                        })}
+                                        {/* If active calendar has no entry, still show empty textarea to allow typing */}
+                                        {!entries[activeCalendarId]?.[dateStr] && (
+                                             <textarea 
+                                                value=""
+                                                onChange={(e) => onEntryChange(dateStr, e.target.value)} 
+                                                className={`w-full text-xs md:text-sm resize-none bg-transparent outline-none leading-relaxed flex-1 ${theme.text}`} 
+                                                placeholder={isMonth ? "" : "Write..."}
+                                            />
+                                        )}
+                                    </div>
                                 </div>
                             );
                         })}
@@ -829,8 +623,15 @@
                     {bgPicker && (
                         <>
                             <div className="fixed inset-0 z-40" onClick={() => setBgPicker(null)} />
-                            <div className="fixed z-50 p-2 rounded-lg shadow-xl border bg-white grid grid-cols-5 gap-1" style={{ top: bgPicker.top, left: bgPicker.left }}>
-                                {ENTRY_BG_COLORS.map((c, idx) => <div key={idx} className={`w-6 h-6 rounded-full cursor-pointer border ${c.class || 'bg-white'}`} onClick={() => { onColorChange(bgPicker.dateStr, idx); setBgPicker(null); }} />)}
+                            <div className="fixed z-50 p-3 rounded-xl shadow-xl border bg-white grid grid-cols-5 gap-2" style={{ top: bgPicker.top, left: bgPicker.left }}>
+                                {ENTRY_BG_COLORS.map((c, idx) => (
+                                    <div key={idx} 
+                                        className={`w-6 h-6 rounded-full cursor-pointer ${c.class || 'bg-white'} border border-black/5 hover:scale-110 transition-transform relative`} 
+                                        style={{backgroundColor: c.code}}
+                                        onClick={() => { onColorChange(bgPicker.dateStr, idx); setBgPicker(null); }}
+                                    >
+                                    </div>
+                                ))}
                             </div>
                         </>
                     )}
@@ -838,29 +639,50 @@
             );
         }
 
-        function DayView({ date, entry, calendarName, calendarColorIndex, theme, onChange, onBack }) {
+        function DayView({ date, entry, calendarName, calendarColorIndex, theme, onChange, onBack, searchQuery }) {
+            const textareaRef = useRef(null);
+             useEffect(() => {
+                if (searchQuery && textareaRef.current && entry) {
+                    const index = entry.toLowerCase().indexOf(searchQuery.toLowerCase());
+                    if (index !== -1) { textareaRef.current.setSelectionRange(index, index + searchQuery.length); textareaRef.current.focus(); }
+                }
+            }, [searchQuery, entry]);
+
             return (
-                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col h-full max-w-3xl mx-auto p-4 md:p-8 w-full">
+                <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={PAGE_TRANSITION} className="flex flex-col h-full max-w-3xl mx-auto p-4 md:p-8 w-full">
                     <button onClick={onBack} className="md:hidden mb-2 text-sm text-gray-500 flex items-center gap-1"><ChevronLeft size={16}/> Back</button>
                     <div className={`rounded-2xl shadow-xl border ${theme.border} flex flex-col h-full overflow-hidden ${theme.card}`}>
                         <div className={`px-6 py-4 border-b ${theme.border} bg-opacity-50`}>
                             <h2 className={`text-2xl font-bold ${theme.text}`}>{format(date, 'd MMMM yyyy')}</h2>
                             <p className={`text-xs uppercase tracking-wide ${CALENDAR_COLORS[calendarColorIndex || 0].value}`}>{format(date, 'EEEE')} • {calendarName}</p>
                         </div>
-                        <textarea value={entry} onChange={(e) => onChange(e.target.value)} placeholder="Write here..." className={`flex-1 w-full p-6 text-lg leading-relaxed resize-none outline-none bg-transparent ${theme.text} ${CALENDAR_COLORS[calendarColorIndex || 0].value}`} autoFocus />
+                        <textarea ref={textareaRef} value={entry} onChange={(e) => onChange(e.target.value)} placeholder="Write here..." className={`flex-1 w-full p-6 text-lg leading-relaxed resize-none outline-none bg-transparent ${theme.text} ${CALENDAR_COLORS[calendarColorIndex || 0].value}`} autoFocus />
                     </div>
                 </motion.div>
             );
         }
 
+        // --- Improved DatePicker (Windows Style) ---
         function DatePicker({ currentDate, onChange, theme }) {
+            const [viewMode, setViewMode] = useState('month');
+            const [viewYear, setViewYear] = useState(getYear(currentDate));
             const months = Array.from({ length: 12 }, (_, i) => i);
+            const startYear = viewYear - 5;
+            const years = Array.from({ length: 12 }, (_, i) => startYear + i);
+
             return (
-                <div className={`p-4 rounded-xl shadow-2xl border ${theme.border} ${theme.card} w-64`}>
+                <div className={`p-4 rounded-xl shadow-2xl border ${theme.border} ${theme.card} w-64 animate-in fade-in zoom-in-95 duration-150`}>
+                    <div className="flex justify-between items-center mb-4">
+                        <button onClick={() => { if(viewMode==='month') onChange(subYears(currentDate, 1)); else setViewYear(viewYear - 12); }} className={`p-1 hover:bg-gray-100 rounded ${theme.subText}`}><ChevronLeft size={16}/></button>
+                        <button onClick={() => setViewMode(viewMode === 'month' ? 'year' : 'month')} className={`font-semibold hover:bg-gray-100 px-2 py-1 rounded transition-colors ${theme.text}`}>{viewMode === 'month' ? format(currentDate, 'yyyy') : `${startYear} - ${startYear + 11}`}</button>
+                        <button onClick={() => { if(viewMode==='month') onChange(addYears(currentDate, 1)); else setViewYear(viewYear + 12); }} className={`p-1 hover:bg-gray-100 rounded ${theme.subText}`}><ChevronRight size={16}/></button>
+                    </div>
                     <div className="grid grid-cols-3 gap-2">
-                        {months.map(m => (
-                            <button key={m} onClick={() => onChange(setMonth(currentDate, m))} className={`py-2 rounded text-sm hover:bg-gray-50 ${getMonth(currentDate) === m ? 'bg-gray-900 text-white' : theme.text}`}>{format(new Date(2000, m, 1), 'MMM')}</button>
-                        ))}
+                        {viewMode === 'month' ? (months.map(m => (
+                                <button key={m} onClick={() => onChange(setMonth(currentDate, m))} className={`py-2 rounded text-sm hover:bg-gray-50 ${getMonth(currentDate) === m ? 'bg-gray-900 text-white font-medium' : theme.text}`}>{format(new Date(2000, m, 1), 'MMM')}</button>
+                            ))) : (years.map(y => (
+                                <button key={y} onClick={() => { onChange(setYear(currentDate, y)); setViewMode('month'); }} className={`py-2 rounded text-sm hover:bg-gray-50 ${getYear(currentDate) === y ? 'bg-gray-900 text-white font-medium' : theme.text} ${y === getYear(new Date()) ? 'border border-gray-200' : ''}`}>{y}</button>
+                            )))}
                     </div>
                 </div>
             );
