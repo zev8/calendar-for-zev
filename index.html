@@ -338,6 +338,17 @@
                 return () => { events.forEach(e => window.removeEventListener(e, handler)); };
             }, [isLocked]);
 
+            // ESC Key Navigation for Focus Mode
+            useEffect(() => {
+                const handleKeyDown = (e) => {
+                    if (e.key === 'Escape' && view === 'day') {
+                        setView(isMobileMode ? 'week' : 'month');
+                    }
+                };
+                window.addEventListener('keydown', handleKeyDown);
+                return () => window.removeEventListener('keydown', handleKeyDown);
+            }, [view, isMobileMode]);
+
             const handleEntryChange = (dateStr, text) => setEntries(prev => ({ ...prev, [activeCalendarId]: { ...(prev[activeCalendarId] || {}), [dateStr]: text } }));
             const handleColorChange = (dateStr, colorIndex) => setEntryColors(prev => ({ ...prev, [activeCalendarId]: { ...(prev[activeCalendarId] || {}), [dateStr]: colorIndex } }));
             
@@ -544,6 +555,9 @@
 
             // Sort calendars: visible ones, active calendar last so it's textarea is at bottom (or active)
             const visibleList = calendars.filter(c => visibleCalendarIds.has(c.id)).sort((a, b) => a.id === activeCalendarId ? 1 : -1);
+            
+            // Separate active calendar (always rendered as input) from others (rendered as text blocks)
+            const otherVisibleCalendars = calendars.filter(c => visibleCalendarIds.has(c.id) && c.id !== activeCalendarId);
 
             return (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={PAGE_TRANSITION} className={`flex flex-col h-full ${theme.bg}`}>
@@ -579,26 +593,10 @@
                                     </div>
                                     
                                     <div className="flex-1 w-full flex flex-col gap-1 overflow-y-auto min-h-0 px-2 pb-2">
-                                        {/* Render other visible calendars as text blocks */}
-                                        {visibleList.map(cal => {
+                                        {/* 1. Render other visible calendars as text blocks */}
+                                        {otherVisibleCalendars.map(cal => {
                                             const txt = entries[cal.id]?.[dateStr];
                                             if (!txt) return null;
-                                            
-                                            // Active Calendar -> Textarea
-                                            if (cal.id === activeCalendarId) {
-                                                return (
-                                                    <textarea 
-                                                        key={cal.id}
-                                                        value={txt} 
-                                                        onChange={(e) => onEntryChange(dateStr, e.target.value)} 
-                                                        className={`w-full text-xs md:text-sm resize-none bg-transparent outline-none leading-relaxed flex-shrink-0 ${theme.text}`} 
-                                                        placeholder={isMonth ? "" : "Write..."}
-                                                        style={{ minHeight: '1.5em' }}
-                                                    />
-                                                );
-                                            }
-                                            
-                                            // Other Calendars -> Colored Text Block
                                             const calColor = CALENDAR_COLORS[cal.colorIndex || 0];
                                             return (
                                                 <div key={cal.id} className={`text-xs ${calColor.value} opacity-90 truncate flex-shrink-0`}>
@@ -606,15 +604,15 @@
                                                 </div>
                                             );
                                         })}
-                                        {/* If active calendar has no entry, still show empty textarea to allow typing */}
-                                        {!entries[activeCalendarId]?.[dateStr] && (
-                                             <textarea 
-                                                value=""
-                                                onChange={(e) => onEntryChange(dateStr, e.target.value)} 
-                                                className={`w-full text-xs md:text-sm resize-none bg-transparent outline-none leading-relaxed flex-1 ${theme.text}`} 
-                                                placeholder={isMonth ? "" : "Write..."}
-                                            />
-                                        )}
+                                        
+                                        {/* 2. ALWAYS Render Active Calendar Textarea (fills remaining space) */}
+                                        <textarea 
+                                            value={entries[activeCalendarId]?.[dateStr] || ''} 
+                                            onChange={(e) => onEntryChange(dateStr, e.target.value)} 
+                                            className={`w-full text-xs md:text-sm resize-none bg-transparent outline-none leading-relaxed flex-1 ${theme.text}`} 
+                                            placeholder={isMonth ? "" : "Write..."}
+                                            style={{ minHeight: '1.5em' }}
+                                        />
                                     </div>
                                 </div>
                             );
