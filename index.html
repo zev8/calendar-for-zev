@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Zev - Cloud Diary</title>
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -19,11 +20,16 @@
                             400: '#9CA3AF', 500: '#6B7280', 600: '#4B5563', 700: '#374151',
                             800: '#1F2937', 900: '#111827',
                         }
+                    },
+                    padding: {
+                        'safe-top': 'env(safe-area-inset-top)',
+                        'safe-bottom': 'env(safe-area-inset-bottom)',
                     }
                 }
             }
         }
     </script>
+    <!-- Babel -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
@@ -73,7 +79,7 @@
             Moon, Sun, Eye, EyeOff, Download, Maximize2, Clock, Plus, Trash2, Edit2, 
             Check, X, Lock, Archive, Search, Settings, HelpCircle, Bell, Menu, Upload, 
             FolderOpen, Save, HardDrive, FileJson, RefreshCw, Link as LinkIcon, Palette,
-            Cloud, Wifi, WifiOff, Copy
+            Cloud, Wifi, WifiOff, Copy, LogOut, FileDown, FileUp
         } from 'lucide-react';
         import { 
             format, addMonths, subMonths, startOfMonth, endOfMonth, 
@@ -120,37 +126,6 @@
             });
             if (!res.ok) throw new Error('Failed to update Gist');
             return await res.json();
-        };
-
-        // --- IndexedDB Helper (For File Handles) ---
-        const DB_NAME = 'ZevDiaryDB';
-        const STORE_NAME = 'handles';
-        const dbPromise = new Promise((resolve, reject) => {
-            if (typeof indexedDB === 'undefined') { resolve(null); return; }
-            const request = indexedDB.open(DB_NAME, 1);
-            request.onupgradeneeded = (event) => event.target.result.createObjectStore(STORE_NAME);
-            request.onsuccess = (event) => resolve(event.target.result);
-            request.onerror = (event) => reject(event.target.error);
-        });
-        const setFileHandleDB = async (key, handle) => {
-            const db = await dbPromise;
-            if (!db) return;
-            return new Promise((resolve, reject) => {
-                const tx = db.transaction(STORE_NAME, 'readwrite');
-                tx.objectStore(STORE_NAME).put(handle, key);
-                tx.oncomplete = () => resolve();
-                tx.onerror = () => reject(tx.error);
-            });
-        };
-        const getFileHandleDB = async (key) => {
-            const db = await dbPromise;
-            if (!db) return null;
-            return new Promise((resolve, reject) => {
-                const tx = db.transaction(STORE_NAME, 'readonly');
-                const req = tx.objectStore(STORE_NAME).get(key);
-                req.onsuccess = () => resolve(req.result);
-                req.onerror = () => reject(req.error);
-            });
         };
 
         // --- Constants ---
@@ -202,26 +177,41 @@
             const [password, setPassword] = useState('');
             const [error, setError] = useState(false);
             const [shake, setShake] = useState(false);
-            const handleSubmit = (e) => {
-                e.preventDefault();
-                setShake(true); setError(true); setPassword('');
-                setTimeout(() => setShake(false), 400);
+            
+            const handleUnlock = (e) => {
+                if(e) e.preventDefault();
+                onUnlock();
             };
+
             useEffect(() => {
                 const handleKeyDown = (e) => { if (e.key === 'Escape') onUnlock(); };
                 window.addEventListener('keydown', handleKeyDown);
                 return () => window.removeEventListener('keydown', handleKeyDown);
             }, [onUnlock]);
+            
             return (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className={`fixed inset-0 z-50 flex items-center justify-center ${theme.lockBg} ${theme.text}`}>
-                    <form onSubmit={handleSubmit} className={`flex flex-col items-center gap-6 p-10 rounded-3xl w-full max-w-sm ${shake ? 'animate-shake' : ''}`}>
-                        <div className={`w-16 h-16 rounded-xl flex items-center justify-center shadow-md mb-2 bg-white border ${theme.border}`}><Lock size={32} className="text-gray-900" /></div>
-                        <div className="text-center"><h1 className="text-2xl font-semibold">Welcome back</h1><p className={`text-sm mt-2 ${theme.subText}`}>Press 'ESC' for quick entry</p></div>
-                        <div className="w-full relative">
-                            <input type="password" value={password} onChange={(e) => { setPassword(e.target.value); setError(false); }} placeholder="Enter password" className={`w-full px-4 py-3 rounded-lg border outline-none text-sm bg-white ${error ? 'border-red-500 ring-2 ring-red-100' : `${theme.border} focus:border-gray-400`}`} autoFocus />
+                    <div className={`flex flex-col items-center gap-6 p-10 rounded-3xl w-full max-w-sm ${shake ? 'animate-shake' : ''}`}>
+                        <div 
+                            onClick={handleUnlock}
+                            className={`w-20 h-20 rounded-2xl flex items-center justify-center shadow-lg mb-2 bg-white border ${theme.border} cursor-pointer active:scale-95 transition-transform`}
+                        >
+                            <Lock size={32} className="text-gray-900" />
                         </div>
-                        <button type="submit" className="w-full py-3 rounded-lg font-medium shadow-sm bg-gray-900 text-white hover:bg-gray-800">Unlock</button>
-                    </form>
+                        <div className="text-center">
+                            <h1 className="text-2xl font-semibold">Welcome back</h1>
+                            <p className={`text-sm mt-2 ${theme.subText}`}>Tap icon to unlock</p>
+                        </div>
+                        
+                        {/* Hidden password input to keep layout but simplify access as requested */}
+                        <form onSubmit={handleUnlock} className="w-full relative opacity-0 h-0 overflow-hidden">
+                             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+                        </form>
+
+                        <button onClick={handleUnlock} className="w-full py-3.5 rounded-xl font-medium shadow-sm bg-gray-900 text-white hover:bg-gray-800 active:scale-95 transition-all">
+                            Enter Diary
+                        </button>
+                    </div>
                 </motion.div>
             );
         }
@@ -263,7 +253,7 @@
             if (!isOpen) return null;
 
             return (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm p-4">
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95 duration-200">
                     <div className={`w-full max-w-md p-6 rounded-2xl shadow-2xl ${theme.card} ${theme.text} border ${theme.border}`}>
                         <div className="flex justify-between items-center mb-6">
                             <h2 className="text-lg font-semibold flex items-center gap-2"><Cloud size={20}/> Cloud Sync (GitHub)</h2>
@@ -336,16 +326,13 @@
             const [isCloudModalOpen, setIsCloudModalOpen] = useState(false);
 
             // Storage State
-            const [fileHandle, setFileHandle] = useState(null);
-            const [storedFileHandle, setStoredFileHandle] = useState(null); // For local file re-link
             const [githubConfig, setGithubConfig] = useState({ token: '', gistId: '' });
-            
             const [saveStatus, setSaveStatus] = useState('idle'); // idle, saving, saved, error
             const [lastSaved, setLastSaved] = useState(null);
             
             const theme = THEMES[themeMode];
             const searchInputRef = useRef(null);
-            const fileInputRef = useRef(null);
+            const importInputRef = useRef(null);
             const saveTimeoutRef = useRef(null);
             const activityTimerRef = useRef(null);
 
@@ -387,14 +374,6 @@
                             }
                         } catch (e) {}
                     }
-                    
-                    // Check for previous Local File Handle (Desktop only)
-                    if (typeof window.showOpenFilePicker === 'function') {
-                        try {
-                            const handle = await getFileHandleDB('lastFileHandle');
-                            if (handle) setStoredFileHandle(handle);
-                        } catch (e) {}
-                    }
                 };
                 load();
             }, []);
@@ -409,21 +388,14 @@
 
                 if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
                 
-                // Debounced Cloud/File Save
-                if (githubConfig.token || fileHandle) {
+                // Debounced Cloud Save
+                if (githubConfig.token) {
                     setSaveStatus('saving');
                     saveTimeoutRef.current = setTimeout(async () => {
                         const data = { calendars, entries, entryColors, themeMode };
                         try {
-                            // 1. Save to Cloud
                             if (githubConfig.token && githubConfig.gistId) {
                                 await updateGist(githubConfig.token, githubConfig.gistId, data);
-                            }
-                            // 2. Save to Local File
-                            if (fileHandle) {
-                                const writable = await fileHandle.createWritable();
-                                await writable.write(JSON.stringify(data, null, 2));
-                                await writable.close();
                             }
                             setLastSaved(new Date());
                             setSaveStatus('saved');
@@ -434,7 +406,7 @@
                         }
                     }, 2000); // 2 second delay
                 }
-            }, [entries, entryColors, calendars, themeMode, githubConfig, fileHandle]);
+            }, [entries, entryColors, calendars, themeMode, githubConfig]);
 
             const applyData = (data) => {
                 if (data.calendars) setCalendars(data.calendars);
@@ -472,7 +444,6 @@
                 const config = { token, gistId };
                 setGithubConfig(config);
                 localStorage.setItem('diary_github_config', JSON.stringify(config));
-                // Trigger immediate save to sync current state
                 setSaveStatus('saving');
             };
 
@@ -484,35 +455,41 @@
                 }
             };
 
-            // Legacy File Handlers
-            const handleLoadFile = async () => {
-                try {
-                    const [handle] = await window.showOpenFilePicker({ types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }] });
-                    const file = await handle.getFile();
-                    const text = await file.text();
-                    applyData(JSON.parse(text));
-                    setFileHandle(handle);
-                    setStoredFileHandle(null);
-                    setFileHandleDB('lastFileHandle', handle);
-                } catch(e) { console.log(e); }
+            // Universal Backup Functions (Works on Mobile & Desktop)
+            const handleExportBackup = () => {
+                const data = { calendars, entries, entryColors, themeMode };
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `zev_diary_backup_${format(new Date(), 'yyyy-MM-dd')}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
             };
 
-            const handleReconnectFile = async () => {
-                if (!storedFileHandle) return;
-                try {
-                    if ((await storedFileHandle.queryPermission({mode:'readwrite'})) !== 'granted') {
-                        if ((await storedFileHandle.requestPermission({mode:'readwrite'})) !== 'granted') return;
+            const handleImportBackup = (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const data = JSON.parse(e.target.result);
+                        if (confirm("Restore backup? Current entries will be updated.")) {
+                            applyData(data);
+                            alert("Backup restored successfully!");
+                        }
+                    } catch (err) {
+                        alert("Failed to parse file.");
                     }
-                    const file = await storedFileHandle.getFile();
-                    applyData(JSON.parse(await file.text()));
-                    setFileHandle(storedFileHandle);
-                    setStoredFileHandle(null);
-                } catch(e) { alert("File access lost."); setStoredFileHandle(null); }
+                };
+                reader.readAsText(file);
+                event.target.value = null; 
             };
 
             const handleUnlock = () => {
                 setIsLocked(false);
-                if (storedFileHandle && !fileHandle) handleReconnectFile(); 
             };
             
             // --- Renders ---
@@ -532,6 +509,9 @@
                         onDisconnect={handleCloudDisconnect}
                         theme={theme}
                     />
+
+                    {/* Hidden Import Input */}
+                    <input type="file" ref={importInputRef} style={{display:'none'}} accept=".json" onChange={handleImportBackup} />
 
                     {/* Sidebar */}
                     <motion.div animate={{ width: isSidebarOpen ? 260 : 0, opacity: isSidebarOpen ? 1 : 0 }} className={`flex-shrink-0 flex flex-col ${theme.sidebar} h-full z-20 pt-safe-top`}>
@@ -574,29 +554,23 @@
                             </div>
                             
                             {/* Footer / Status Area */}
-                            <div className={`mt-auto pt-4 border-t ${theme.border}`}>
+                            <div className={`mt-auto pt-4 border-t ${theme.border} space-y-2`}>
                                 {/* Cloud Status */}
-                                <button onClick={() => setIsCloudModalOpen(true)} className={`w-full flex items-center gap-2 p-2 rounded-lg text-xs font-medium mb-2 transition-colors ${githubConfig.token ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+                                <button onClick={() => setIsCloudModalOpen(true)} className={`w-full flex items-center gap-2 p-2 rounded-lg text-xs font-medium transition-colors ${githubConfig.token ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
                                     {githubConfig.token ? <Wifi size={14} /> : <WifiOff size={14}/>}
                                     <span className="flex-1 text-left">{githubConfig.token ? 'Cloud Synced' : 'Cloud Off'}</span>
                                     {githubConfig.token && <Settings size={12} className="opacity-50"/>}
                                 </button>
 
-                                {/* Local File Status (Desktop) */}
-                                {window.showOpenFilePicker && (
-                                    <>
-                                        {storedFileHandle && !fileHandle && (
-                                            <button onClick={handleReconnectFile} className="w-full flex items-center justify-center gap-2 p-2 bg-indigo-50 border border-indigo-100 rounded-lg text-indigo-700 text-xs font-medium hover:bg-indigo-100 mb-2">
-                                                <LinkIcon size={14} /> Reconnect File
-                                            </button>
-                                        )}
-                                        {!fileHandle && !storedFileHandle && !githubConfig.token && (
-                                            <button onClick={handleLoadFile} className={`w-full flex items-center justify-center gap-2 p-2 border ${theme.border} rounded-lg text-xs hover:bg-gray-100 mb-2`}>
-                                                <HardDrive size={14}/> Open Local File
-                                            </button>
-                                        )}
-                                    </>
-                                )}
+                                {/* Import / Export */}
+                                <div className="grid grid-cols-2 gap-2">
+                                    <button onClick={() => importInputRef.current?.click()} className={`flex items-center justify-center gap-1.5 p-2 rounded-lg border ${theme.border} hover:bg-gray-50 text-xs ${theme.subText}`} title="Import Backup">
+                                        <FileUp size={14} /> Import
+                                    </button>
+                                    <button onClick={handleExportBackup} className={`flex items-center justify-center gap-1.5 p-2 rounded-lg border ${theme.border} hover:bg-gray-50 text-xs ${theme.subText}`} title="Save to File">
+                                        <FileDown size={14} /> Export
+                                    </button>
+                                </div>
 
                                 {/* Save Indicator */}
                                 <div className={`flex items-center gap-2 px-1 py-1 text-[10px] ${saveStatus === 'error' ? 'text-red-500' : theme.subText}`}>
