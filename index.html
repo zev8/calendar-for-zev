@@ -150,8 +150,9 @@
             { name: 'Pink', value: 'text-pink-600 dark:text-pink-400', code: '#db2777' },
         ];
         
+        // Modified Default to be dark mode compatible
         const ENTRY_BG_COLORS = [
-            { name: 'Default', class: 'bg-white', code: '#ffffff' }, 
+            { name: 'Default', class: 'bg-white dark:bg-gray-800/50', code: '#ffffff' }, 
             { name: 'Warm Red', class: 'bg-red-50 dark:bg-red-900/20', code: '#fef2f2' },
             { name: 'Orange', class: 'bg-orange-50 dark:bg-orange-900/20', code: '#fff7ed' },
             { name: 'Amber', class: 'bg-amber-50 dark:bg-amber-900/20', code: '#fffbeb' },
@@ -171,16 +172,10 @@
             const [password, setPassword] = useState('');
             const [shake, setShake] = useState(false);
             
-            // Standard "Unlock" action (Success)
             const handleUnlock = (e) => { 
                 if(e) e.preventDefault(); 
                 onUnlock(); 
             };
-
-            // Fake failure action (optional, but for now we just unlock on submit to make it easy for user)
-            // User requested "input password to have a confirm icon, make people think it is normal password input"
-            // But also "still unlock by clicking unlock icon".
-            // So we will just make the submit button ALSO unlock it (acting as a "Log In" button)
 
             useEffect(() => {
                 const handleKeyDown = (e) => { if (e.key === 'Escape') onUnlock(); };
@@ -191,7 +186,6 @@
             return (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className={`fixed inset-0 z-50 flex items-center justify-center ${theme.lockBg} ${theme.text}`}>
                     <div className={`flex flex-col items-center gap-8 p-12 rounded-3xl w-full max-w-sm ${shake ? 'animate-shake' : ''}`}>
-                        {/* Camouflaged Lock Icon - Looks like part of a serious login form but is the secret key */}
                         <div 
                             onClick={handleUnlock}
                             className={`w-24 h-24 rounded-full flex items-center justify-center shadow-2xl mb-2 bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900 border-4 border-white dark:border-gray-700 cursor-pointer active:scale-95 transition-transform group`}
@@ -206,17 +200,15 @@
                                 <p className="text-xs opacity-40 mt-1 uppercase tracking-widest">Locked</p>
                             </div>
                             
-                            {/* Realistic Password Input Form */}
                             <form onSubmit={handleUnlock} className="relative w-full">
                                 <input 
                                     type="password" 
                                     value={password} 
                                     onChange={(e) => setPassword(e.target.value)} 
                                     placeholder="Password"
-                                    className={`w-full h-12 pl-4 pr-12 rounded-xl border ${theme.border} bg-white/50 dark:bg-black/20 outline-none focus:ring-2 focus:ring-gray-200 dark:focus:ring-gray-700 transition-all text-sm`}
+                                    className={`w-full h-12 pl-4 pr-12 rounded-xl border ${theme.border} bg-white/50 dark:bg-black/20 outline-none focus:ring-2 focus:ring-gray-200 dark:focus:ring-gray-700 transition-all text-sm text-gray-900 dark:text-gray-100`}
                                     autoFocus
                                 />
-                                {/* Confirm/Submit Icon Button */}
                                 <button 
                                     type="submit"
                                     className="absolute right-2 top-2 h-8 w-8 flex items-center justify-center rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-500 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
@@ -271,12 +263,12 @@
                             </div>
                         ) : (
                             <div className="space-y-4">
-                                <input type="password" value={token} onChange={e=>setToken(e.target.value)} placeholder="GitHub Personal Token (ghp_...)" className={`w-full p-2.5 rounded-lg border ${theme.border} bg-transparent text-sm focus:ring-2 focus:ring-gray-200`} />
+                                <input type="password" value={token} onChange={e=>setToken(e.target.value)} placeholder="GitHub Personal Token (ghp_...)" className={`w-full p-2.5 rounded-lg border ${theme.border} bg-transparent text-sm focus:ring-2 focus:ring-gray-200 ${theme.text}`} />
                                 <div className="grid grid-cols-2 gap-3 pt-2">
                                     <button onClick={() => handleConnect(true)} disabled={isLoading} className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-gray-200 hover:border-gray-400 hover:bg-gray-50 transition-all"><Plus size={20} className="opacity-50"/><span className="text-sm font-medium">New Gist</span></button>
                                     <button onClick={() => { if(!gistId) { setError('Enter Gist ID'); return; } handleConnect(false); }} disabled={isLoading} className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-gray-200 hover:border-gray-400 hover:bg-gray-50 transition-all"><Download size={20} className="opacity-50"/><span className="text-sm font-medium">Load Existing</span></button>
                                 </div>
-                                <input value={gistId} onChange={e=>setGistId(e.target.value)} placeholder="Or Existing Gist ID" className={`w-full p-2.5 rounded-lg border ${theme.border} bg-transparent text-sm focus:ring-2 focus:ring-gray-200`} />
+                                <input value={gistId} onChange={e=>setGistId(e.target.value)} placeholder="Or Existing Gist ID" className={`w-full p-2.5 rounded-lg border ${theme.border} bg-transparent text-sm focus:ring-2 focus:ring-gray-200 ${theme.text}`} />
                                 {error && <p className="text-xs text-red-500">{error}</p>}
                                 {isLoading && <p className="text-xs text-center opacity-50">Connecting...</p>}
                             </div>
@@ -372,7 +364,6 @@
 
             const resetActivityTimer = () => {
                 if (activityTimerRef.current) clearTimeout(activityTimerRef.current);
-                // Modified: 15 minutes timeout
                 activityTimerRef.current = setTimeout(() => { setIsLocked(true); }, 15 * 60 * 1000);
             };
             useEffect(() => {
@@ -382,7 +373,6 @@
                 return () => { events.forEach(e => window.removeEventListener(e, handler)); };
             }, [isLocked]);
 
-            // ESC Key Navigation for Focus Mode
             useEffect(() => {
                 const handleKeyDown = (e) => {
                     if (e.key === 'Escape' && view === 'day') {
@@ -512,11 +502,7 @@
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                    {/* Manual Lock Button Added Here */}
-                                    <button onClick={() => setIsLocked(true)} className={`p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${theme.subText}`} title="Lock Diary">
-                                        <Lock size={18} />
-                                    </button>
-
+                                    <button onClick={() => setIsLocked(true)} className={`p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${theme.subText}`} title="Lock Diary"><Lock size={18} /></button>
                                     <div className="relative hidden md:block">
                                         <Search size={14} className={`absolute left-2.5 top-2.5 ${theme.subText}`} />
                                         <input ref={searchInputRef} value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search" className={`pl-8 pr-2 py-1.5 rounded-lg border ${theme.border} text-sm w-48 focus:ring-1 focus:ring-gray-200 ${theme.card} ${theme.text}`} />
@@ -557,9 +543,6 @@
             const [editName, setEditName] = useState(calendar.name);
             const [showColorPicker, setShowColorPicker] = useState(false);
             const color = CALENDAR_COLORS[calendar.colorIndex || 0];
-            
-            // Close picker when clicking outside logic is handled by the backdrop div inside
-            
             return (
                 <div onClick={onClick} className={`group relative flex items-center justify-between px-3 py-1.5 rounded-lg cursor-pointer transition-all text-sm ${isActive ? 'bg-gray-100' : `hover:bg-gray-50`}`}>
                     <div className="flex items-center gap-3 flex-1 overflow-hidden">
