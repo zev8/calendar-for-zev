@@ -303,7 +303,8 @@
             
             const [currentDate, setCurrentDate] = useState(new Date());
             const [selectedDate, setSelectedDate] = useState(new Date());
-            const [view, setView] = useState(window.innerWidth < 768 ? 'week' : 'month');
+            // Default to 'day' (Focus Mode) on mobile as requested
+            const [view, setView] = useState(window.innerWidth < 768 ? 'day' : 'month');
             const [themeMode, setThemeMode] = useState('light');
             const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 768);
             const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
@@ -475,11 +476,7 @@
                         )}
                     </AnimatePresence>
 
-                    {/* FIXED: Sidebar Container with overflow-hidden to prevent phantom clicks when closed */}
-                    <motion.div 
-                        animate={{ width: isSidebarOpen ? 260 : 0, x: isSidebarOpen ? 0 : (isMobileMode ? -260 : 0), opacity: (isSidebarOpen || isMobileMode) ? 1 : 0 }} 
-                        className={`flex-shrink-0 flex flex-col ${theme.sidebar} h-full z-40 pt-safe-top overflow-hidden ${isMobileMode ? 'fixed top-0 left-0 shadow-2xl' : 'relative'} ${!isSidebarOpen && !isMobileMode ? 'pointer-events-none' : ''}`}
-                    >
+                    <motion.div animate={{ width: isSidebarOpen ? 260 : 0, x: isSidebarOpen ? 0 : (isMobileMode ? -260 : 0), opacity: (isSidebarOpen || isMobileMode) ? 1 : 0 }} className={`flex-shrink-0 flex flex-col ${theme.sidebar} h-full z-40 pt-safe-top overflow-hidden ${isMobileMode ? 'fixed top-0 left-0 shadow-2xl' : 'relative'} ${!isSidebarOpen && !isMobileMode ? 'pointer-events-none' : ''}`}>
                         <div className="p-5 flex flex-col h-full pt-6 w-[260px]">
                             {isMobileMode && <button onClick={() => setIsSidebarOpen(false)} className="absolute top-4 right-4 p-2 text-gray-400"><X size={20}/></button>}
                             <div className="space-y-1 flex-1 overflow-y-auto scrollbar-thin mt-8 md:mt-0">
