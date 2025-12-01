@@ -625,7 +625,7 @@
                                     
                                     {/* Conditional Header based on View */}
                                     {view === 'todo' ? (
-                                        <div className="flex items-center gap-2">
+                                        <div className="hidden md:flex items-center gap-2">
                                             <h1 className={`text-xl md:text-2xl font-bold ${theme.text}`}>To-Do List</h1>
                                             <span className={`text-sm ${theme.subText} px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800`}>
                                                 {calendars.find(c => c.id === activeCalendarId)?.name}
