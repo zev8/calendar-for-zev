@@ -385,8 +385,20 @@
                         try {
                             const lsEntries = localStorage.getItem('diary_entries');
                             if (lsEntries) setEntries(JSON.parse(lsEntries));
+                            
+                            // --- Fix: Restore lost Todos (Migration Logic) ---
                             const lsTodos = localStorage.getItem('diary_todos');
-                            if (lsTodos) setTodos(JSON.parse(lsTodos));
+                            if (lsTodos) {
+                                const parsed = JSON.parse(lsTodos);
+                                // If data is an array (old format), migrate it to 'default' calendar
+                                if (Array.isArray(parsed)) {
+                                    setTodos({ 'default': parsed });
+                                    console.log("Restored legacy todos to default calendar");
+                                } else {
+                                    setTodos(parsed);
+                                }
+                            }
+                            
                             const lsCals = localStorage.getItem('diary_calendars');
                             if (lsCals) setCalendars(JSON.parse(lsCals));
                             const lsColors = localStorage.getItem('diary_entry_colors');
@@ -420,7 +432,16 @@
                 if(!data) return;
                 if (data.calendars) setCalendars(data.calendars);
                 if (data.entries) setEntries(data.entries);
-                if (data.todos) setTodos(data.todos); // Load todos
+                
+                // --- Fix: Restore cloud Todos (Migration Logic) ---
+                if (data.todos) {
+                    if (Array.isArray(data.todos)) {
+                        setTodos({ 'default': data.todos });
+                    } else {
+                        setTodos(data.todos);
+                    }
+                }
+                
                 if (data.entryColors) setEntryColors(data.entryColors);
                 if (data.themeMode) setThemeMode(data.themeMode);
                 if (data.calendars && data.calendars.length > 0) { setActiveCalendarId(data.calendars[0].id); setVisibleCalendarIds(new Set([data.calendars[0].id])); }
