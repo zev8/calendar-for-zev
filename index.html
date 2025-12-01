@@ -69,6 +69,14 @@
             color: #9ca3af;
             pointer-events: none;
         }
+        
+        /* Specific styles for images inside the mini calendar cells to prevent layout breaking */
+        .mini-cell-content img {
+            max-width: 100%;
+            height: auto;
+            opacity: 0.8;
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-900 antialiased overflow-hidden transition-colors duration-300">
@@ -810,12 +818,19 @@
             const visibleList = calendars.filter(c => visibleCalendarIds.has(c.id)).sort((a, b) => a.id === activeCalendarId ? 1 : -1);
             const otherVisibleCalendars = calendars.filter(c => visibleCalendarIds.has(c.id) && c.id !== activeCalendarId);
 
+            // Dynamic grid rows for month view to prevent implicit 'auto' rows stretching
+            const rowCount = Math.ceil(days.length / 7);
+            const gridStyle = isMonth ? { gridTemplateRows: `repeat(${rowCount}, minmax(0, 1fr))` } : {};
+
             return (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={PAGE_TRANSITION} className={`flex flex-col h-full ${theme.bg}`}>
                     <div className={`grid grid-cols-7 border-b ${theme.border} ${!isMonth && isMobileMode ? 'hidden' : 'grid'}`}>
                         {['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map(w => <div key={w} className={`px-4 py-2 text-xs font-semibold ${theme.subText} text-center`}>{w}</div>)}
                     </div>
-                    <div className={`flex-1 grid ${isMonth ? 'grid-cols-7 grid-rows-5' : (isMobileMode ? 'grid-cols-1 grid-rows-7' : 'grid-cols-7 grid-rows-1')} overflow-y-auto`}>
+                    <div 
+                        className={`flex-1 grid ${isMonth ? 'grid-cols-7' : (isMobileMode ? 'grid-cols-1 grid-rows-7' : 'grid-cols-7 grid-rows-1')} overflow-y-auto`}
+                        style={gridStyle}
+                    >
                         {days.map((day, i) => {
                             const dateStr = format(day, 'yyyy-MM-dd');
                             const isCurrent = isSameMonth(day, currentDate);
@@ -842,7 +857,7 @@
                                         <button className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-gray-600 transition-colors" onClick={(e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setBgPicker({ dateStr, top: r.bottom, left: r.right - 120 }); }}><div className="w-2 h-2 rounded-full bg-current opacity-50 hover:opacity-100"></div></button>
                                     </div>
                                     
-                                    <div className="flex-1 w-full flex flex-col gap-1 overflow-y-auto min-h-0 px-2 pb-2">
+                                    <div className="flex-1 w-full flex flex-col gap-1 overflow-hidden min-h-0 px-2 pb-2 mini-cell-content">
                                         {otherVisibleCalendars.map(cal => {
                                             const txt = entries[cal.id]?.[dateStr];
                                             if (!txt) return null;
@@ -854,10 +869,27 @@
                                                 </div>
                                             );
                                         })}
-                                        {/* Preview of current calendar entry (stripped HTML) */}
-                                        <div className={`w-full text-xs md:text-sm leading-relaxed flex-1 ${theme.text} break-words whitespace-pre-wrap overflow-hidden`}>
-                                            {stripHtml(entries[activeCalendarId]?.[dateStr] || '')}
-                                        </div>
+                                        
+                                        {/* Editable Content Area */}
+                                        <div
+                                            className={`w-full h-full text-xs md:text-sm leading-relaxed ${theme.text} break-words whitespace-pre-wrap outline-none overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-600 cursor-text`}
+                                            contentEditable={true}
+                                            suppressContentEditableWarning={true}
+                                            onBlur={(e) => {
+                                                const html = e.currentTarget.innerHTML;
+                                                if (html !== (entries[activeCalendarId]?.[dateStr] || '')) {
+                                                    onEntryChange(dateStr, html);
+                                                }
+                                            }}
+                                            dangerouslySetInnerHTML={{ __html: entries[activeCalendarId]?.[dateStr] || '' }}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                const now = Date.now();
+                                                if (clickRef.current.id === dateStr && (now - clickRef.current.lastTime) < 400) clickRef.current.count++; else clickRef.current = { count: 1, id: dateStr, lastTime: now };
+                                                onDayClick(day);
+                                                if (clickRef.current.count >= 3) onDayTripleClick(day);
+                                            }}
+                                        />
                                     </div>
                                 </div>
                             );
