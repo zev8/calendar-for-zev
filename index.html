@@ -54,6 +54,21 @@
             20%, 40%, 60%, 80% { transform: translateX(4px); }
         }
         .animate-shake { animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both; }
+        
+        /* Editor Images Style */
+        .rich-editor img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+            margin: 10px 0;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            display: inline-block;
+        }
+        .rich-editor:empty:before {
+            content: attr(placeholder);
+            color: #9ca3af;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-900 antialiased overflow-hidden transition-colors duration-300">
@@ -81,7 +96,8 @@
             Check, X, Lock, Unlock, Archive, Search, Settings, HelpCircle, Bell, Menu, Upload, 
             FolderOpen, Save, HardDrive, FileJson, RefreshCw, Link as LinkIcon, Palette,
             Cloud, Wifi, WifiOff, Copy, LogOut, FileDown, FileUp, LayoutGrid, Rows,
-            Smartphone, Monitor, ArrowRight, Shield, ShieldAlert, CheckSquare, Circle, CheckCircle
+            Smartphone, Monitor, ArrowRight, Shield, ShieldAlert, CheckSquare, Circle, CheckCircle,
+            Image as ImageIcon
         } from 'lucide-react';
         import { 
             format, addMonths, subMonths, startOfMonth, endOfMonth, 
@@ -129,6 +145,20 @@
             });
             if (!res.ok) throw new Error('Failed to update Gist');
             return await res.json();
+        };
+
+        // --- Helper: Strip HTML for Preview ---
+        const stripHtml = (html) => {
+            if (!html) return '';
+            // 将 <img> 标签替换为 [图片]
+            let text = html.replace(/<img[^>]*>/g, ' [图片] ');
+            // 替换换行标签为空格
+            text = text.replace(/<br\s*\/?>/gi, ' ');
+            text = text.replace(/<\/div>/gi, ' ');
+            text = text.replace(/<\/p>/gi, ' ');
+            // 创建临时 DOM 元素去除其他标签
+            const doc = new DOMParser().parseFromString(text, 'text/html');
+            return doc.body.textContent || "";
         };
 
         // --- Constants ---
@@ -817,19 +847,17 @@
                                             const txt = entries[cal.id]?.[dateStr];
                                             if (!txt) return null;
                                             const calColor = CALENDAR_COLORS[cal.colorIndex || 0];
+                                            const preview = stripHtml(txt);
                                             return (
                                                 <div key={cal.id} className={`text-xs ${calColor.value} opacity-90 truncate flex-shrink-0`}>
-                                                    <HighlightedText text={txt} highlight={searchQuery} />
+                                                    <HighlightedText text={preview} highlight={searchQuery} />
                                                 </div>
                                             );
                                         })}
-                                        <textarea 
-                                            value={entries[activeCalendarId]?.[dateStr] || ''} 
-                                            onChange={(e) => onEntryChange(dateStr, e.target.value)} 
-                                            className={`w-full text-xs md:text-sm resize-none bg-transparent outline-none leading-relaxed flex-1 ${theme.text}`} 
-                                            placeholder={isMonth ? "" : "Write..."}
-                                            style={{ minHeight: '1.5em' }}
-                                        />
+                                        {/* Preview of current calendar entry (stripped HTML) */}
+                                        <div className={`w-full text-xs md:text-sm leading-relaxed flex-1 ${theme.text} break-words whitespace-pre-wrap overflow-hidden`}>
+                                            {stripHtml(entries[activeCalendarId]?.[dateStr] || '')}
+                                        </div>
                                     </div>
                                 </div>
                             );
@@ -855,23 +883,101 @@
         }
 
         function DayView({ date, entry, calendarName, calendarColorIndex, theme, onChange, onBack, searchQuery }) {
-            const textareaRef = useRef(null);
+            const editorRef = useRef(null);
+            const fileInputRef = useRef(null);
+
              useEffect(() => {
-                if (searchQuery && textareaRef.current && entry) {
-                    const index = entry.toLowerCase().indexOf(searchQuery.toLowerCase());
-                    if (index !== -1) { textareaRef.current.setSelectionRange(index, index + searchQuery.length); textareaRef.current.focus(); }
-                }
+                // Focus / Highlight logic
+                // Since we switched to div, text selection logic for search needs to be updated if needed.
+                // For simplicity, we skip auto-highlighting in contentEditable for now or keep it simple.
             }, [searchQuery, entry]);
 
+            // Sync contentEditable with entry state when entry changes externally (e.g. date change)
+            useEffect(() => {
+                if (editorRef.current) {
+                    let html = entry || '';
+                    // Simple check to see if it's plain text (old data) -> convert newlines to <br>
+                    if (html && !html.includes('<') && html.includes('\n')) {
+                        html = html.replace(/\n/g, '<br>');
+                    }
+                    if (editorRef.current.innerHTML !== html) {
+                        editorRef.current.innerHTML = html;
+                    }
+                }
+            }, [date, entry]); // Depend on date to force refresh on day switch
+
+            const handleInput = (e) => {
+                const html = e.currentTarget.innerHTML;
+                onChange(html);
+            };
+
+            const handlePaste = (e) => {
+                const items = e.clipboardData.items;
+                for (let i = 0; i < items.length; i++) {
+                    if (items[i].type.indexOf('image') !== -1) {
+                        e.preventDefault();
+                        const blob = items[i].getAsFile();
+                        insertImage(blob);
+                    }
+                }
+            };
+
+            const handleFileSelect = (e) => {
+                if (e.target.files && e.target.files[0]) {
+                    insertImage(e.target.files[0]);
+                }
+                e.target.value = null; // Reset
+            };
+
+            const insertImage = (file) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const imgHtml = `<img src="${e.target.result}" />`;
+                    document.execCommand('insertHTML', false, imgHtml);
+                    // Trigger input event manually to save state
+                    if(editorRef.current) {
+                        onChange(editorRef.current.innerHTML);
+                    }
+                };
+                reader.readAsDataURL(file);
+            };
+
             return (
-                <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={PAGE_TRANSITION} className="flex flex-col h-full max-w-3xl mx-auto p-4 md:p-8 w-full">
+                <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={PAGE_TRANSITION} className="flex flex-col h-full max-w-3xl mx-auto p-4 md:p-8 w-full relative">
                     <button onClick={onBack} className="md:hidden mb-2 text-sm text-gray-500 flex items-center gap-1"><ChevronLeft size={16}/> Back</button>
-                    <div className={`rounded-2xl shadow-xl border ${theme.border} flex flex-col h-full overflow-hidden ${theme.card}`}>
+                    <div className={`rounded-2xl shadow-xl border ${theme.border} flex flex-col h-full overflow-hidden ${theme.card} relative`}>
                         <div className={`px-6 py-4 border-b ${theme.border} bg-opacity-50`}>
                             <h2 className={`text-2xl font-bold ${theme.text}`}>{format(date, 'd MMMM yyyy')}</h2>
                             <p className={`text-xs uppercase tracking-wide ${CALENDAR_COLORS[calendarColorIndex || 0].value}`}>{format(date, 'EEEE')} • {calendarName}</p>
                         </div>
-                        <textarea ref={textareaRef} value={entry} onChange={(e) => onChange(e.target.value)} placeholder="Write here..." className={`flex-1 w-full p-6 text-lg leading-relaxed resize-none outline-none bg-transparent ${theme.text} ${CALENDAR_COLORS[calendarColorIndex || 0].value}`} autoFocus />
+                        
+                        {/* Rich Text Editor Div */}
+                        <div 
+                            ref={editorRef}
+                            contentEditable
+                            onInput={handleInput}
+                            onPaste={handlePaste}
+                            className={`rich-editor flex-1 w-full p-6 text-lg leading-relaxed outline-none overflow-y-auto bg-transparent ${theme.text} ${CALENDAR_COLORS[calendarColorIndex || 0].value}`} 
+                            placeholder="Write here..."
+                        />
+                        
+                        {/* Floating Add Image Button */}
+                        <div className="absolute bottom-6 right-6">
+                            <button 
+                                onClick={() => fileInputRef.current?.click()}
+                                className="w-12 h-12 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded-full flex items-center justify-center shadow-lg hover:scale-110 transition-transform active:scale-95"
+                                title="Add Image"
+                            >
+                                <Plus size={24} />
+                            </button>
+                            <input 
+                                type="file" 
+                                ref={fileInputRef} 
+                                className="hidden" 
+                                accept="image/*" 
+                                onChange={handleFileSelect} 
+                            />
+                        </div>
                     </div>
                 </motion.div>
             );
