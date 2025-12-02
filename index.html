@@ -1016,15 +1016,12 @@
 
              useEffect(() => {
                 // Focus / Highlight logic
-                // Since we switched to div, text selection logic for search needs to be updated if needed.
-                // For simplicity, we skip auto-highlighting in contentEditable for now or keep it simple.
             }, [searchQuery, entry]);
 
             // Sync contentEditable with entry state when entry changes externally (e.g. date change)
             useEffect(() => {
                 if (editorRef.current) {
                     let html = entry || '';
-                    // Simple check to see if it's plain text (old data) -> convert newlines to <br>
                     if (html && !html.includes('<') && html.includes('\n')) {
                         html = html.replace(/\n/g, '<br>');
                     }
@@ -1032,7 +1029,7 @@
                         editorRef.current.innerHTML = html;
                     }
                 }
-            }, [date, entry]); // Depend on date to force refresh on day switch
+            }, [date, entry]); 
 
             const handleInput = (e) => {
                 const html = e.currentTarget.innerHTML;
@@ -1057,15 +1054,43 @@
                 e.target.value = null; // Reset
             };
 
+            // --- Updated: Image Compression Logic ---
             const insertImage = (file) => {
+                const MAX_WIDTH = 800; // Limit image width to 800px
+                const QUALITY = 0.6;   // Compress quality to 60%
+
                 const reader = new FileReader();
                 reader.onload = (e) => {
-                    const imgHtml = `<img src="${e.target.result}" />`;
-                    document.execCommand('insertHTML', false, imgHtml);
-                    // Trigger input event manually to save state
-                    if(editorRef.current) {
-                        onChange(editorRef.current.innerHTML);
-                    }
+                    const img = new Image();
+                    img.src = e.target.result;
+                    img.onload = () => {
+                        // Create canvas for compression
+                        const canvas = document.createElement('canvas');
+                        let width = img.width;
+                        let height = img.height;
+
+                        // Resize logic
+                        if (width > MAX_WIDTH) {
+                            height = Math.round((height * MAX_WIDTH) / width);
+                            width = MAX_WIDTH;
+                        }
+
+                        canvas.width = width;
+                        canvas.height = height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, width, height);
+
+                        // Convert to compressed JPEG Data URL
+                        const compressedDataUrl = canvas.toDataURL('image/jpeg', QUALITY);
+                        
+                        // Insert compressed image
+                        document.execCommand('insertHTML', false, `<img src="${compressedDataUrl}" />`);
+                        
+                        // Trigger state update
+                        if(editorRef.current) {
+                            onChange(editorRef.current.innerHTML);
+                        }
+                    };
                 };
                 reader.readAsDataURL(file);
             };
