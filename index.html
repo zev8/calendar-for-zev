@@ -356,6 +356,9 @@
             const [searchQuery, setSearchQuery] = useState('');
             const [isCloudModalOpen, setIsCloudModalOpen] = useState(false);
             const [autoLockDisabled, setAutoLockDisabled] = useState(false); 
+            
+            // --- CRITICAL FIX: Data Load Safety Flag ---
+            const [isDataLoaded, setIsDataLoaded] = useState(false);
 
             const [githubConfig, setGithubConfig] = useState({ token: '', gistId: '' });
             const [saveStatus, setSaveStatus] = useState('idle');
@@ -378,9 +381,18 @@
                         try {
                             setSaveStatus('saving');
                             const data = await getGist(ghConfig.token, ghConfig.gistId);
-                            if (data) applyData(data);
-                            setSaveStatus('saved');
-                        } catch (e) { setSaveStatus('error'); }
+                            if (data) {
+                                applyData(data);
+                                setIsDataLoaded(true); // MARK AS LOADED ONLY ON SUCCESS
+                                setSaveStatus('saved');
+                            } else {
+                                throw new Error("Empty data received");
+                            }
+                        } catch (e) { 
+                            setSaveStatus('error'); 
+                            console.error("Critical: Initial load failed. Auto-save disabled to prevent data loss.", e);
+                            // Do NOT set isDataLoaded(true) here. This is the safety breaker.
+                        }
                     } else {
                         try {
                             const lsEntries = localStorage.getItem('diary_entries');
@@ -390,10 +402,8 @@
                             const lsTodos = localStorage.getItem('diary_todos');
                             if (lsTodos) {
                                 const parsed = JSON.parse(lsTodos);
-                                // If data is an array (old format), migrate it to 'default' calendar
                                 if (Array.isArray(parsed)) {
                                     setTodos({ 'default': parsed });
-                                    console.log("Restored legacy todos to default calendar");
                                 } else {
                                     setTodos(parsed);
                                 }
@@ -403,13 +413,21 @@
                             if (lsCals) setCalendars(JSON.parse(lsCals));
                             const lsColors = localStorage.getItem('diary_entry_colors');
                             if (lsColors) setEntryColors(JSON.parse(lsColors));
-                        } catch (e) {}
+                            
+                            setIsDataLoaded(true); // Local load is considered safe/complete
+                        } catch (e) {
+                            console.error("Local load error", e);
+                            setIsDataLoaded(true); // Fallback to new empty state if local parse fails
+                        }
                     }
                 };
                 load();
             }, []);
 
             useEffect(() => {
+                // --- SAFETY BREAKER: Prevent saving if data wasn't loaded successfully ---
+                if (!isDataLoaded) return;
+
                 localStorage.setItem('diary_entries', JSON.stringify(entries));
                 localStorage.setItem('diary_todos', JSON.stringify(todos));
                 localStorage.setItem('diary_entry_colors', JSON.stringify(entryColors));
@@ -426,7 +444,7 @@
                         } catch (err) { setSaveStatus('error'); }
                     }, 2000);
                 }
-            }, [entries, todos, entryColors, calendars, themeMode, githubConfig]);
+            }, [entries, todos, entryColors, calendars, themeMode, githubConfig, isDataLoaded]);
 
             const applyData = (data) => {
                 if(!data) return;
