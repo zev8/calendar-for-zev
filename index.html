@@ -105,7 +105,7 @@
             FolderOpen, Save, HardDrive, FileJson, RefreshCw, Link as LinkIcon, Palette,
             Cloud, Wifi, WifiOff, Copy, LogOut, FileDown, FileUp, LayoutGrid, Rows,
             Smartphone, Monitor, ArrowRight, Shield, ShieldAlert, CheckSquare, Circle, CheckCircle,
-            Image as ImageIcon
+            Image as ImageIcon, GripVertical
         } from 'lucide-react';
         import { 
             format, addMonths, subMonths, startOfMonth, endOfMonth, 
@@ -114,7 +114,7 @@
             addWeeks, subWeeks, addYears, subYears
         } from 'date-fns';
         import { enUS } from 'date-fns/locale';
-        import { motion, AnimatePresence } from 'framer-motion';
+        import { motion, AnimatePresence, Reorder, useDragControls } from 'framer-motion';
 
         // --- GitHub API Helper ---
         const GIST_FILENAME = "zev_diary_data.json";
@@ -502,6 +502,14 @@
                 }));
             };
 
+            // New Handler for Reordering
+            const handleTodoReorder = (newOrder) => {
+                setTodos(prev => ({
+                    ...prev,
+                    [activeCalendarId]: newOrder
+                }));
+            };
+
             const handleConnectSuccess = (token, gistId, data) => {
                 if(data) applyData(data);
                 const config = { token, gistId };
@@ -671,7 +679,17 @@
                                 ) : view === 'day' ? (
                                     <DayView key="day" date={selectedDate} entry={getEntry(selectedDate)} calendarName={calendars.find(c => c.id === activeCalendarId)?.name} calendarColorIndex={calendars.find(c => c.id === activeCalendarId)?.colorIndex} theme={theme} onChange={(text) => handleEntryChange(format(selectedDate, 'yyyy-MM-dd'), text)} onBack={() => setView(isMobileMode ? 'week' : 'month')} searchQuery={searchQuery} />
                                 ) : (
-                                    <TodoView key="todo" todos={todos[activeCalendarId] || []} onAdd={handleTodoAdd} onToggle={handleTodoToggle} onDelete={handleTodoDelete} onEdit={handleTodoEdit} theme={theme} calendarColor={CALENDAR_COLORS[calendars.find(c => c.id === activeCalendarId)?.colorIndex]} />
+                                    <TodoView 
+                                        key="todo" 
+                                        todos={todos[activeCalendarId] || []} 
+                                        onAdd={handleTodoAdd} 
+                                        onToggle={handleTodoToggle} 
+                                        onDelete={handleTodoDelete} 
+                                        onEdit={handleTodoEdit} 
+                                        onReorder={handleTodoReorder}
+                                        theme={theme} 
+                                        calendarColor={CALENDAR_COLORS[calendars.find(c => c.id === activeCalendarId)?.colorIndex]} 
+                                    />
                                 )}
                             </AnimatePresence>
                         </main>
@@ -680,8 +698,57 @@
             );
         }
 
-        // --- Todo View Component (Enhanced with Edit) ---
-        function TodoView({ todos, onAdd, onToggle, onDelete, onEdit, theme, calendarColor }) {
+        // --- New TodoItem Component for Drag & Drop ---
+        function TodoItem({ todo, onToggle, onDelete, startEdit, editingId, editText, setEditText, saveEdit, theme, calendarColor }) {
+            const controls = useDragControls();
+
+            return (
+                <Reorder.Item
+                    value={todo}
+                    dragListener={false}
+                    dragControls={controls}
+                    dragMomentum={false} 
+                    className={`group flex items-center gap-3 p-3 rounded-xl transition-colors bg-white dark:bg-gray-800/40 hover:bg-gray-50 dark:hover:bg-gray-700/30 select-none relative shadow-sm border border-transparent hover:border-gray-100 dark:hover:border-gray-700`}
+                >
+                     <div
+                        onPointerDown={(e) => controls.start(e)}
+                        className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 touch-none flex-shrink-0 p-1"
+                        style={{ touchAction: 'none' }} 
+                    >
+                        <GripVertical size={16} />
+                    </div>
+
+                    <button onClick={() => onToggle(todo.id)} className={`flex-shrink-0 transition-colors ${todo.completed ? 'text-gray-400' : calendarColor.value}`}>
+                        {todo.completed ? <CheckCircle size={20} /> : <Circle size={20} />}
+                    </button>
+                    
+                    {/* Edit Mode Logic */}
+                    {editingId === todo.id ? (
+                        <input
+                            autoFocus
+                            value={editText}
+                            onChange={(e) => setEditText(e.target.value)}
+                            onBlur={saveEdit}
+                            onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') startEdit(null); }} // startEdit(null) effectively cancels
+                            className={`flex-1 bg-transparent border-b border-gray-300 dark:border-gray-600 outline-none ${theme.text} text-sm pb-1`}
+                        />
+                    ) : (
+                        <span 
+                            onClick={() => startEdit(todo)}
+                            className={`flex-1 text-sm transition-colors cursor-text ${todo.completed ? 'line-through text-gray-400' : theme.text}`}
+                            title="Click to edit"
+                        >
+                            {todo.text}
+                        </span>
+                    )}
+
+                    <button onClick={() => onDelete(todo.id)} className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
+                </Reorder.Item>
+            );
+        }
+
+        // --- Todo View Component (Enhanced with Reorder) ---
+        function TodoView({ todos, onAdd, onToggle, onDelete, onEdit, onReorder, theme, calendarColor }) {
             const [newTodo, setNewTodo] = useState('');
             const [editingId, setEditingId] = useState(null);
             const [editText, setEditText] = useState('');
@@ -692,6 +759,10 @@
             };
             
             const startEdit = (todo) => {
+                if (!todo) { // cancel edit
+                    setEditingId(null);
+                    return;
+                }
                 setEditingId(todo.id);
                 setEditText(todo.text);
             };
@@ -728,7 +799,7 @@
                             <button type="submit" disabled={!newTodo.trim()} className={`px-4 py-2 rounded-lg font-medium transition-colors ${!newTodo.trim() ? 'opacity-50 cursor-not-allowed bg-gray-100 text-gray-400' : 'bg-gray-900 text-white hover:bg-gray-800'}`}>Add</button>
                         </form>
 
-                        {/* List Area */}
+                        {/* List Area - Replaced ul with Reorder.Group */}
                         <div className="flex-1 overflow-y-auto p-2">
                             {todos.length === 0 ? (
                                 <div className="h-full flex flex-col items-center justify-center text-gray-400 opacity-50 gap-2">
@@ -736,37 +807,23 @@
                                     <p className="text-sm">No tasks yet</p>
                                 </div>
                             ) : (
-                                <ul className="space-y-1">
+                                <Reorder.Group axis="y" values={todos} onReorder={onReorder} className="space-y-1">
                                     {todos.map(todo => (
-                                        <li key={todo.id} className={`group flex items-center gap-3 p-3 rounded-xl transition-all hover:bg-gray-50 dark:hover:bg-gray-700/30`}>
-                                            <button onClick={() => onToggle(todo.id)} className={`flex-shrink-0 transition-colors ${todo.completed ? 'text-gray-400' : calendarColor.value}`}>
-                                                {todo.completed ? <CheckCircle size={20} /> : <Circle size={20} />}
-                                            </button>
-                                            
-                                            {/* Edit Mode Logic */}
-                                            {editingId === todo.id ? (
-                                                <input
-                                                    autoFocus
-                                                    value={editText}
-                                                    onChange={(e) => setEditText(e.target.value)}
-                                                    onBlur={saveEdit}
-                                                    onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditingId(null); }}
-                                                    className={`flex-1 bg-transparent border-b border-gray-300 dark:border-gray-600 outline-none ${theme.text} text-sm pb-1`}
-                                                />
-                                            ) : (
-                                                <span 
-                                                    onClick={() => startEdit(todo)}
-                                                    className={`flex-1 text-sm transition-all cursor-text ${todo.completed ? 'line-through text-gray-400' : theme.text}`}
-                                                    title="Click to edit"
-                                                >
-                                                    {todo.text}
-                                                </span>
-                                            )}
-
-                                            <button onClick={() => onDelete(todo.id)} className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-red-500 transition-all"><Trash2 size={16} /></button>
-                                        </li>
+                                        <TodoItem 
+                                            key={todo.id}
+                                            todo={todo}
+                                            onToggle={onToggle}
+                                            onDelete={onDelete}
+                                            startEdit={startEdit}
+                                            editingId={editingId}
+                                            editText={editText}
+                                            setEditText={setEditText}
+                                            saveEdit={saveEdit}
+                                            theme={theme}
+                                            calendarColor={calendarColor}
+                                        />
                                     ))}
-                                </ul>
+                                </Reorder.Group>
                             )}
                         </div>
                     </div>
