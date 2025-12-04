@@ -348,7 +348,8 @@
             const [currentDate, setCurrentDate] = useState(new Date());
             const [selectedDate, setSelectedDate] = useState(new Date());
             // Added 'todo' to views
-            const [view, setView] = useState(window.innerWidth < 768 ? 'day' : 'month');
+            // Modified: Default to 'day' (Focus Mode) on all devices as requested
+            const [view, setView] = useState('day');
             const [themeMode, setThemeMode] = useState('light');
             const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 768);
             const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
