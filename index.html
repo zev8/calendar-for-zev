@@ -105,7 +105,7 @@
             FolderOpen, Save, HardDrive, FileJson, RefreshCw, Link as LinkIcon, Palette,
             Cloud, Wifi, WifiOff, Copy, LogOut, FileDown, FileUp, LayoutGrid, Rows,
             Smartphone, Monitor, ArrowRight, Shield, ShieldAlert, CheckSquare, Circle, CheckCircle,
-            Image as ImageIcon, GripVertical
+            Image as ImageIcon, GripVertical, Flag
         } from 'lucide-react';
         import { 
             format, addMonths, subMonths, startOfMonth, endOfMonth, 
@@ -210,6 +210,14 @@
             { name: 'Purple', class: 'bg-purple-50 dark:bg-purple-900/20', code: '#faf5ff' },
             { name: 'Rose', class: 'bg-rose-50 dark:bg-rose-900/20', code: '#fff1f2' },
         ];
+
+        // --- Priority Styles Configuration ---
+        const PRIORITY_STYLES = {
+            0: { bg: 'bg-white dark:bg-gray-800/40', border: 'border-transparent', iconColor: 'text-gray-300 hover:text-gray-500' }, // None
+            1: { bg: 'bg-blue-50 dark:bg-blue-900/20', border: 'border-blue-100 dark:border-blue-800', iconColor: 'text-blue-500' }, // Low (Blue)
+            2: { bg: 'bg-orange-50 dark:bg-orange-900/20', border: 'border-orange-100 dark:border-orange-800', iconColor: 'text-orange-500' }, // Medium (Orange)
+            3: { bg: 'bg-red-50 dark:bg-red-900/20', border: 'border-red-100 dark:border-red-800', iconColor: 'text-red-500' } // High (Red)
+        };
 
         const PAGE_TRANSITION = { type: "tween", ease: "circOut", duration: 0.25 };
         const generateId = () => Math.random().toString(36).substr(2, 9);
@@ -466,18 +474,37 @@
                 if (data.calendars && data.calendars.length > 0) { setActiveCalendarId(data.calendars[0].id); setVisibleCalendarIds(new Set([data.calendars[0].id])); }
             };
 
-            const resetActivityTimer = () => {
-                if (activityTimerRef.current) clearTimeout(activityTimerRef.current);
-                if (!autoLockDisabled) {
-                    activityTimerRef.current = setTimeout(() => { setIsLocked(true); }, 15 * 60 * 1000);
-                }
-            };
+            // --- REFACTORED: Robust Auto-Lock Timer Logic ---
             useEffect(() => {
+                const clearTimer = () => {
+                    if (activityTimerRef.current) clearTimeout(activityTimerRef.current);
+                };
+
+                const startTimer = () => {
+                    // Always clear existing timer first to prevent duplicates/zombies
+                    clearTimer();
+                    
+                    // Only set a new timer if NOT locked AND Auto-Lock is ENABLED
+                    if (!isLocked && !autoLockDisabled) {
+                        activityTimerRef.current = setTimeout(() => {
+                            setIsLocked(true);
+                        }, 30 * 60 * 1000); // 30 minutes
+                    }
+                };
+
+                // Initialize timer immediately when state changes (e.g., toggling the button)
+                startTimer();
+
                 const events = ['mousedown', 'keydown', 'touchstart', 'scroll'];
-                const handler = () => { if (!isLocked) resetActivityTimer(); };
+                const handler = () => startTimer(); // Reset timer on user activity
+
                 events.forEach(e => window.addEventListener(e, handler));
-                return () => { events.forEach(e => window.removeEventListener(e, handler)); };
-            }, [isLocked, autoLockDisabled]);
+
+                return () => {
+                    events.forEach(e => window.removeEventListener(e, handler));
+                    clearTimer(); // Cleanup on unmount or re-render
+                };
+            }, [isLocked, autoLockDisabled]); // Critical: Re-run effect when these change
 
             useEffect(() => {
                 const handleKeyDown = (e) => {
@@ -494,7 +521,7 @@
             
             // Todo Handlers
             const handleTodoAdd = (text) => {
-                const newTodo = { id: generateId(), text, completed: false, createdAt: new Date().toISOString() };
+                const newTodo = { id: generateId(), text, completed: false, createdAt: new Date().toISOString(), priority: 0 };
                 setTodos(prev => ({
                     ...prev,
                     [activeCalendarId]: [...(prev[activeCalendarId] || []), newTodo]
@@ -526,6 +553,21 @@
                 setTodos(prev => ({
                     ...prev,
                     [activeCalendarId]: newOrder
+                }));
+            };
+            
+            // New Handler for Priority Change
+            const handleTodoPriorityChange = (id) => {
+                setTodos(prev => ({
+                    ...prev,
+                    [activeCalendarId]: prev[activeCalendarId].map(t => {
+                        if (t.id === id) {
+                            const currentPriority = t.priority || 0;
+                            const nextPriority = (currentPriority + 1) % 4; // Cycle 0 -> 1 -> 2 -> 3 -> 0
+                            return { ...t, priority: nextPriority };
+                        }
+                        return t;
+                    })
                 }));
             };
 
@@ -706,6 +748,7 @@
                                         onDelete={handleTodoDelete} 
                                         onEdit={handleTodoEdit} 
                                         onReorder={handleTodoReorder}
+                                        onPriorityChange={handleTodoPriorityChange}
                                         theme={theme} 
                                         calendarColor={CALENDAR_COLORS[calendars.find(c => c.id === activeCalendarId)?.colorIndex]} 
                                     />
@@ -718,8 +761,12 @@
         }
 
         // --- New TodoItem Component for Drag & Drop ---
-        function TodoItem({ todo, onToggle, onDelete, startEdit, editingId, editText, setEditText, saveEdit, theme, calendarColor }) {
+        function TodoItem({ todo, onToggle, onDelete, startEdit, editingId, editText, setEditText, saveEdit, onPriorityChange, theme, calendarColor }) {
             const controls = useDragControls();
+            
+            // Get styles based on priority, default to 0 if undefined
+            const priority = todo.priority || 0;
+            const pStyle = PRIORITY_STYLES[priority] || PRIORITY_STYLES[0];
 
             return (
                 <Reorder.Item
@@ -727,7 +774,7 @@
                     dragListener={false}
                     dragControls={controls}
                     dragMomentum={false} 
-                    className={`group flex items-center gap-3 p-3 rounded-xl transition-colors bg-white dark:bg-gray-800/40 hover:bg-gray-50 dark:hover:bg-gray-700/30 select-none relative shadow-sm border border-transparent hover:border-gray-100 dark:hover:border-gray-700`}
+                    className={`group flex items-center gap-3 p-3 rounded-xl transition-colors ${pStyle.bg} select-none relative shadow-sm border ${priority === 0 ? 'border-transparent hover:border-gray-100 dark:hover:border-gray-700' : pStyle.border}`}
                 >
                      <div
                         onPointerDown={(e) => controls.start(e)}
@@ -761,13 +808,23 @@
                         </span>
                     )}
 
+                    {/* Priority Dot Button - Changed from Flag to Circle */}
+                    <button 
+                        onClick={() => onPriorityChange(todo.id)} 
+                        className={`p-1.5 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors ${pStyle.iconColor}`}
+                        title="Change Priority"
+                    >
+                        {/* Circle with fill for active priorities */}
+                        <Circle size={14} fill={priority > 0 ? "currentColor" : "none"} strokeWidth={2} />
+                    </button>
+
                     <button onClick={() => onDelete(todo.id)} className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
                 </Reorder.Item>
             );
         }
 
         // --- Todo View Component (Enhanced with Reorder) ---
-        function TodoView({ todos, onAdd, onToggle, onDelete, onEdit, onReorder, theme, calendarColor }) {
+        function TodoView({ todos, onAdd, onToggle, onDelete, onEdit, onReorder, onPriorityChange, theme, calendarColor }) {
             const [newTodo, setNewTodo] = useState('');
             const [editingId, setEditingId] = useState(null);
             const [editText, setEditText] = useState('');
@@ -838,6 +895,7 @@
                                             editText={editText}
                                             setEditText={setEditText}
                                             saveEdit={saveEdit}
+                                            onPriorityChange={onPriorityChange}
                                             theme={theme}
                                             calendarColor={calendarColor}
                                         />
@@ -1172,5 +1230,3 @@
     </script>
 </body>
 </html>
-
-
