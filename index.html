@@ -525,7 +525,8 @@
                     
                     try {
                         const data = await getGist(githubConfig.token, githubConfig.gistId);
-                        if (data && data.lastUpdated > localLastUpdated) {
+                        // MODIFIED: Added 2000ms buffer to avoid false positives (e.g. self-save latency)
+                        if (data && data.lastUpdated > localLastUpdated + 2000) {
                             // Found newer data! Auto-refresh safely
                             if (confirm("New data found in cloud. Refresh now to see latest changes?")) {
                                 applyData(data);
@@ -572,7 +573,8 @@
                                 // 2. Check for conflict
                                 // If cloud has a timestamp AND it is newer than what we based our changes on
                                 // Note: We allow a small margin (e.g. self-save might have lag, but logic is simplified: if cloud > localLastUpdated)
-                                if (cloudData && cloudData.lastUpdated > localLastUpdated) {
+                                // MODIFIED: Added 2000ms buffer to prevent false positives due to clock skew or network latency
+                                if (cloudData && cloudData.lastUpdated > localLastUpdated + 2000) {
                                     // STOP! Conflict detected.
                                     setConflictData(cloudData); // Store the newer data temporarily
                                     setShowConflictAlert(true); // Show the floating alert
