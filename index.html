@@ -434,6 +434,11 @@
             const [activeCalendarId, setActiveCalendarId] = useState('default');
             const [visibleCalendarIds, setVisibleCalendarIds] = useState(new Set(['default']));
             
+            // --- Version Control State ---
+            // lastUpdated: The timestamp of the current data version. 
+            // Updated on every user edit, and synced from cloud on load.
+            const [lastUpdated, setLastUpdated] = useState(Date.now()); 
+
             const [currentDate, setCurrentDate] = useState(new Date());
             const [selectedDate, setSelectedDate] = useState(new Date());
             const [view, setView] = useState('day');
@@ -449,8 +454,8 @@
             const [isDataLoaded, setIsDataLoaded] = useState(false);
             
             // --- Conflict Handling State ---
-            const [localLastUpdated, setLocalLastUpdated] = useState(0); // My version timestamp
-            const [conflictData, setConflictData] = useState(null); // If conflict, store the remote data here temporarily or just flag it
+            const [localLastUpdated, setLocalLastUpdated] = useState(0); // Deprecated in favor of 'lastUpdated' state, but kept for logic consistency if needed
+            const [conflictData, setConflictData] = useState(null); 
             const [showConflictAlert, setShowConflictAlert] = useState(false);
 
             const [githubConfig, setGithubConfig] = useState({ token: '', gistId: '' });
@@ -463,7 +468,7 @@
             const saveTimeoutRef = useRef(null);
             const activityTimerRef = useRef(null);
 
-            // --- Load Data ---
+            // --- Load Data Strategy (Priority: Local Newest > Cloud Newest > Local Fallback) ---
             useEffect(() => {
                 const load = async () => {
                     const savedTheme = localStorage.getItem('diary_theme');
@@ -471,48 +476,72 @@
                     const savedGithub = localStorage.getItem('diary_github_config');
                     let ghConfig = null;
                     if (savedGithub) { ghConfig = JSON.parse(savedGithub); setGithubConfig(ghConfig); }
+
+                    // 1. Try to load LOCAL data first
+                    let localData = null;
+                    try {
+                        const lsEntries = localStorage.getItem('diary_entries');
+                        const lsTodos = localStorage.getItem('diary_todos');
+                        const lsCals = localStorage.getItem('diary_calendars');
+                        const lsColors = localStorage.getItem('diary_entry_colors');
+                        const lsMeta = localStorage.getItem('diary_metadata'); // New: store timestamp here
+                        
+                        if (lsEntries && lsCals) {
+                            localData = {
+                                entries: JSON.parse(lsEntries),
+                                todos: lsTodos ? JSON.parse(lsTodos) : {},
+                                calendars: JSON.parse(lsCals),
+                                entryColors: lsColors ? JSON.parse(lsColors) : {},
+                                lastUpdated: lsMeta ? JSON.parse(lsMeta).lastUpdated : 0
+                            };
+                            // Compatibility fix for old array todos
+                            if (Array.isArray(localData.todos)) localData.todos = { 'default': localData.todos };
+                        }
+                    } catch (e) { console.error("Local load error", e); }
+
+                    // 2. Try to load CLOUD data
                     if (ghConfig && ghConfig.token && ghConfig.gistId) {
                         try {
                             setSaveStatus('saving');
-                            const data = await getGist(ghConfig.token, ghConfig.gistId);
-                            if (data) {
-                                applyData(data);
-                                setLocalLastUpdated(data.lastUpdated || Date.now()); // Sync timestamp
-                                setIsDataLoaded(true); // MARK AS LOADED ONLY ON SUCCESS
+                            const cloudData = await getGist(ghConfig.token, ghConfig.gistId);
+                            
+                            // 3. Compare and Decide
+                            if (cloudData) {
+                                // If Local is NEWER than Cloud (by at least 2s buffer), keep Local
+                                // This handles the "Sync Failed" scenario where local has unsaved changes
+                                if (localData && localData.lastUpdated > (cloudData.lastUpdated || 0) + 2000) {
+                                    console.log("Local data is newer. Restoring local changes.");
+                                    applyData(localData);
+                                    // This will implicitly trigger auto-save useEffect later, attempting to fix cloud
+                                } else {
+                                    // Otherwise, trust Cloud (it's newer or same)
+                                    console.log("Cloud data loaded.");
+                                    applyData(cloudData);
+                                }
+                                setIsDataLoaded(true);
                                 setSaveStatus('saved');
-                            } else {
-                                throw new Error("Empty data received");
+                                return;
                             }
                         } catch (e) { 
                             setSaveStatus('error'); 
-                            console.error("Critical: Initial load failed. Auto-save disabled to prevent data loss.", e);
-                        }
-                    } else {
-                        try {
-                            const lsEntries = localStorage.getItem('diary_entries');
-                            if (lsEntries) setEntries(JSON.parse(lsEntries));
-                            
-                            // --- Fix: Restore lost Todos (Migration Logic) ---
-                            const lsTodos = localStorage.getItem('diary_todos');
-                            if (lsTodos) {
-                                const parsed = JSON.parse(lsTodos);
-                                if (Array.isArray(parsed)) {
-                                    setTodos({ 'default': parsed });
-                                } else {
-                                    setTodos(parsed);
-                                }
+                            console.error("Cloud load failed.", e);
+                            // Fallback to local if cloud fails entirely
+                            if (localData) {
+                                console.log("Cloud unavailable. Using local backup.");
+                                applyData(localData);
+                                setIsDataLoaded(true);
+                                return;
                             }
-                            
-                            const lsCals = localStorage.getItem('diary_calendars');
-                            if (lsCals) setCalendars(JSON.parse(lsCals));
-                            const lsColors = localStorage.getItem('diary_entry_colors');
-                            if (lsColors) setEntryColors(JSON.parse(lsColors));
-                            
-                            setIsDataLoaded(true); // Local load is considered safe/complete
-                        } catch (e) {
-                            console.error("Local load error", e);
-                            setIsDataLoaded(true); // Fallback to new empty state if local parse fails
                         }
+                    } 
+                    
+                    // 4. Fallback: No cloud config or cloud failed completely
+                    if (localData) {
+                        applyData(localData);
+                        setIsDataLoaded(true);
+                    } else {
+                        // New user or empty state
+                        setIsDataLoaded(true);
                     }
                 };
                 load();
@@ -526,15 +555,13 @@
                     try {
                         const data = await getGist(githubConfig.token, githubConfig.gistId);
                         // MODIFIED: Added 2000ms buffer to avoid false positives (e.g. self-save latency)
-                        if (data && data.lastUpdated > localLastUpdated + 2000) {
+                        if (data && data.lastUpdated > lastUpdated + 2000) {
                             // Found newer data! Auto-refresh safely
                             if (confirm("New data found in cloud. Refresh now to see latest changes?")) {
                                 applyData(data);
-                                setLocalLastUpdated(data.lastUpdated);
                                 console.log("Auto-refreshed from cloud");
                             } else {
-                                // User refused, we are now in a conflict state effectively
-                                setConflictData(data); // Stash it? Or just let the save logic handle it later
+                                setConflictData(data); 
                             }
                         }
                     } catch (e) {
@@ -544,7 +571,7 @@
 
                 window.addEventListener('focus', handleFocus);
                 return () => window.removeEventListener('focus', handleFocus);
-            }, [isDataLoaded, githubConfig, localLastUpdated, showConflictAlert]);
+            }, [isDataLoaded, githubConfig, lastUpdated, showConflictAlert]);
 
             // --- Feature 2: Safe Auto-Save with Pre-flight Check ---
             useEffect(() => {
@@ -554,75 +581,79 @@
                 // --- SAFETY BREAKER: Don't auto-save if we already know there is a conflict ---
                 if (showConflictAlert) return;
 
+                // Save to LocalStorage immediately (Always keep local backup fresh)
                 localStorage.setItem('diary_entries', JSON.stringify(entries));
                 localStorage.setItem('diary_todos', JSON.stringify(todos));
                 localStorage.setItem('diary_entry_colors', JSON.stringify(entryColors));
                 localStorage.setItem('diary_calendars', JSON.stringify(calendars));
                 localStorage.setItem('diary_theme', themeMode);
-                
+                localStorage.setItem('diary_metadata', JSON.stringify({ lastUpdated })); // Save timestamp!
+
                 if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
                 
                 if (githubConfig.token) {
                     setSaveStatus('saving');
+                    
+                    let isCurrentSave = true;
+
                     saveTimeoutRef.current = setTimeout(async () => {
                         try {
                             if (githubConfig.token && githubConfig.gistId) {
                                 // 1. Pre-flight check: Get current cloud state
                                 const cloudData = await getGist(githubConfig.token, githubConfig.gistId);
                                 
+                                if (!isCurrentSave) return;
+
                                 // 2. Check for conflict
-                                // If cloud has a timestamp AND it is newer than what we based our changes on
-                                // Note: We allow a small margin (e.g. self-save might have lag, but logic is simplified: if cloud > localLastUpdated)
                                 // MODIFIED: Added 2000ms buffer to prevent false positives due to clock skew or network latency
-                                if (cloudData && cloudData.lastUpdated > localLastUpdated + 2000) {
-                                    // STOP! Conflict detected.
-                                    setConflictData(cloudData); // Store the newer data temporarily
-                                    setShowConflictAlert(true); // Show the floating alert
-                                    setSaveStatus('error'); // Indicate error
+                                if (cloudData && cloudData.lastUpdated > lastUpdated + 2000) {
+                                    setConflictData(cloudData); 
+                                    setShowConflictAlert(true); 
+                                    setSaveStatus('error'); 
                                     console.warn("Conflict detected. Save aborted.");
                                     return; // ABORT SAVE
                                 }
 
                                 // 3. No conflict? Proceed to save.
-                                const newTimestamp = Date.now();
                                 const dataToSave = { 
                                     calendars, entries, todos, entryColors, themeMode,
-                                    lastUpdated: newTimestamp 
+                                    lastUpdated // Use the state's timestamp which tracks edits
                                 };
                                 
                                 await updateGist(githubConfig.token, githubConfig.gistId, dataToSave);
                                 
-                                setLocalLastUpdated(newTimestamp); // Update our local knowledge base
+                                if (!isCurrentSave) return;
+
                                 setLastSaved(new Date()); 
                                 setSaveStatus('saved');
                             }
                         } catch (err) { 
-                            setSaveStatus('error'); 
-                            console.error("Save failed", err);
+                            if (isCurrentSave) {
+                                setSaveStatus('error'); 
+                                console.error("Save failed", err);
+                            }
                         }
                     }, 2000);
+
+                    return () => {
+                        isCurrentSave = false;
+                        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+                    };
                 }
-            }, [entries, todos, entryColors, calendars, themeMode, githubConfig, isDataLoaded, localLastUpdated, showConflictAlert]);
+            }, [entries, todos, entryColors, calendars, themeMode, githubConfig, isDataLoaded, lastUpdated, showConflictAlert]);
 
             const handleConflictRefresh = () => {
                 if (conflictData) {
                     applyData(conflictData);
-                    setLocalLastUpdated(conflictData.lastUpdated);
                     setShowConflictAlert(false);
                     setConflictData(null);
-                    setSaveStatus('saved'); // Reset status
+                    setSaveStatus('saved'); 
                 }
             };
 
             const handleConflictIgnore = () => {
-                // Keep local, just hide alert. 
-                // Danger: Next manual save might overwrite cloud if we force it, 
-                // but for now we just stop auto-saving effectively until refresh or reload.
-                // Or we could update localLastUpdated to Date.now() to 'accept' local as newest?
-                // For safety: just hide alert, but auto-save will likely trigger conflict again unless we assume 'Force Push' logic.
-                // Here we just pause.
                 setShowConflictAlert(false);
-                setSaveStatus('error'); // Keep warning status
+                setSaveStatus('error'); 
             };
 
             const applyData = (data) => {
@@ -641,7 +672,15 @@
                 
                 if (data.entryColors) setEntryColors(data.entryColors);
                 if (data.themeMode) setThemeMode(data.themeMode);
-                if (data.calendars && data.calendars.length > 0) { setActiveCalendarId(data.calendars[0].id); setVisibleCalendarIds(new Set([data.calendars[0].id])); }
+                if (data.lastUpdated) setLastUpdated(data.lastUpdated); // Sync timestamp
+                
+                if (data.calendars && data.calendars.length > 0) { 
+                    // Robust check for active calendar
+                    if (!data.calendars.find(c => c.id === activeCalendarId)) {
+                        setActiveCalendarId(data.calendars[0].id); 
+                        setVisibleCalendarIds(new Set([data.calendars[0].id])); 
+                    }
+                }
             };
 
             // --- REFACTORED: Robust Auto-Lock Timer Logic ---
@@ -651,10 +690,7 @@
                 };
 
                 const startTimer = () => {
-                    // Always clear existing timer first to prevent duplicates/zombies
                     clearTimer();
-                    
-                    // Only set a new timer if NOT locked AND Auto-Lock is ENABLED
                     if (!isLocked && !autoLockDisabled) {
                         activityTimerRef.current = setTimeout(() => {
                             setIsLocked(true);
@@ -662,19 +698,15 @@
                     }
                 };
 
-                // Initialize timer immediately when state changes (e.g., toggling the button)
                 startTimer();
-
                 const events = ['mousedown', 'keydown', 'touchstart', 'scroll'];
-                const handler = () => startTimer(); // Reset timer on user activity
-
+                const handler = () => startTimer(); 
                 events.forEach(e => window.addEventListener(e, handler));
-
                 return () => {
                     events.forEach(e => window.removeEventListener(e, handler));
-                    clearTimer(); // Cleanup on unmount or re-render
+                    clearTimer(); 
                 };
-            }, [isLocked, autoLockDisabled]); // Critical: Re-run effect when these change
+            }, [isLocked, autoLockDisabled]); 
 
             useEffect(() => {
                 const handleKeyDown = (e) => {
@@ -686,59 +718,51 @@
                 return () => window.removeEventListener('keydown', handleKeyDown);
             }, [view, isMobileMode]);
 
-            const handleEntryChange = (dateStr, text) => setEntries(prev => ({ ...prev, [activeCalendarId]: { ...(prev[activeCalendarId] || {}), [dateStr]: text } }));
-            const handleColorChange = (dateStr, colorIndex) => setEntryColors(prev => ({ ...prev, [activeCalendarId]: { ...(prev[activeCalendarId] || {}), [dateStr]: colorIndex } }));
+            // --- Handlers with Timestamp Updates ---
+            const handleEntryChange = (dateStr, text) => {
+                setEntries(prev => ({ ...prev, [activeCalendarId]: { ...(prev[activeCalendarId] || {}), [dateStr]: text } }));
+                setLastUpdated(Date.now());
+            };
+            const handleColorChange = (dateStr, colorIndex) => {
+                setEntryColors(prev => ({ ...prev, [activeCalendarId]: { ...(prev[activeCalendarId] || {}), [dateStr]: colorIndex } }));
+                setLastUpdated(Date.now());
+            };
             
             // Todo Handlers
             const handleTodoAdd = (text) => {
                 const newTodo = { id: generateId(), text, completed: false, createdAt: new Date().toISOString(), priority: 0 };
-                setTodos(prev => ({
-                    ...prev,
-                    [activeCalendarId]: [...(prev[activeCalendarId] || []), newTodo]
-                }));
+                setTodos(prev => ({ ...prev, [activeCalendarId]: [...(prev[activeCalendarId] || []), newTodo] }));
+                setLastUpdated(Date.now());
             };
             const handleTodoToggle = (id) => {
-                setTodos(prev => ({
-                    ...prev,
-                    [activeCalendarId]: prev[activeCalendarId].map(t => t.id === id ? { ...t, completed: !t.completed } : t)
-                }));
+                setTodos(prev => ({ ...prev, [activeCalendarId]: prev[activeCalendarId].map(t => t.id === id ? { ...t, completed: !t.completed } : t) }));
+                setLastUpdated(Date.now());
             };
             const handleTodoDelete = (id) => {
-                setTodos(prev => ({
-                    ...prev,
-                    [activeCalendarId]: prev[activeCalendarId].filter(t => t.id !== id)
-                }));
+                setTodos(prev => ({ ...prev, [activeCalendarId]: prev[activeCalendarId].filter(t => t.id !== id) }));
+                setLastUpdated(Date.now());
             };
-            
-            // New Handler for Todo Edit
             const handleTodoEdit = (id, newText) => {
-                setTodos(prev => ({
-                    ...prev,
-                    [activeCalendarId]: prev[activeCalendarId].map(t => t.id === id ? { ...t, text: newText } : t)
-                }));
+                setTodos(prev => ({ ...prev, [activeCalendarId]: prev[activeCalendarId].map(t => t.id === id ? { ...t, text: newText } : t) }));
+                setLastUpdated(Date.now());
             };
-
-            // New Handler for Reordering
             const handleTodoReorder = (newOrder) => {
-                setTodos(prev => ({
-                    ...prev,
-                    [activeCalendarId]: newOrder
-                }));
+                setTodos(prev => ({ ...prev, [activeCalendarId]: newOrder }));
+                setLastUpdated(Date.now());
             };
-            
-            // New Handler for Priority Change
             const handleTodoPriorityChange = (id) => {
                 setTodos(prev => ({
                     ...prev,
                     [activeCalendarId]: prev[activeCalendarId].map(t => {
                         if (t.id === id) {
                             const currentPriority = t.priority || 0;
-                            const nextPriority = (currentPriority + 1) % 4; // Cycle 0 -> 1 -> 2 -> 3 -> 0
+                            const nextPriority = (currentPriority + 1) % 4; 
                             return { ...t, priority: nextPriority };
                         }
                         return t;
                     })
                 }));
+                setLastUpdated(Date.now());
             };
 
             const handleConnectSuccess = (token, gistId, data) => {
