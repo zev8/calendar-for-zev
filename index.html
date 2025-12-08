@@ -454,7 +454,7 @@
             const [isDataLoaded, setIsDataLoaded] = useState(false);
             
             // --- Conflict Handling State ---
-            const [localLastUpdated, setLocalLastUpdated] = useState(0); // Deprecated in favor of 'lastUpdated' state, but kept for logic consistency if needed
+            const [localLastUpdated, setLocalLastUpdated] = useState(0); // My version timestamp
             const [conflictData, setConflictData] = useState(null); 
             const [showConflictAlert, setShowConflictAlert] = useState(false);
 
@@ -484,7 +484,7 @@
                         const lsTodos = localStorage.getItem('diary_todos');
                         const lsCals = localStorage.getItem('diary_calendars');
                         const lsColors = localStorage.getItem('diary_entry_colors');
-                        const lsMeta = localStorage.getItem('diary_metadata'); // New: store timestamp here
+                        const lsMeta = localStorage.getItem('diary_metadata'); 
                         
                         if (lsEntries && lsCals) {
                             localData = {
@@ -508,15 +508,16 @@
                             // 3. Compare and Decide
                             if (cloudData) {
                                 // If Local is NEWER than Cloud (by at least 2s buffer), keep Local
-                                // This handles the "Sync Failed" scenario where local has unsaved changes
                                 if (localData && localData.lastUpdated > (cloudData.lastUpdated || 0) + 2000) {
                                     console.log("Local data is newer. Restoring local changes.");
                                     applyData(localData);
-                                    // This will implicitly trigger auto-save useEffect later, attempting to fix cloud
+                                    // FIXED: Even if keeping local, we must know what the cloud baseline was
+                                    setLocalLastUpdated(cloudData.lastUpdated || 0); 
                                 } else {
-                                    // Otherwise, trust Cloud (it's newer or same)
                                     console.log("Cloud data loaded.");
                                     applyData(cloudData);
+                                    // FIXED: Update localLastUpdated so next save doesn't think it's a conflict
+                                    setLocalLastUpdated(cloudData.lastUpdated || Date.now());
                                 }
                                 setIsDataLoaded(true);
                                 setSaveStatus('saved');
@@ -525,7 +526,6 @@
                         } catch (e) { 
                             setSaveStatus('error'); 
                             console.error("Cloud load failed.", e);
-                            // Fallback to local if cloud fails entirely
                             if (localData) {
                                 console.log("Cloud unavailable. Using local backup.");
                                 applyData(localData);
@@ -535,13 +535,14 @@
                         }
                     } 
                     
-                    // 4. Fallback: No cloud config or cloud failed completely
+                    // 4. Fallback
                     if (localData) {
                         applyData(localData);
+                        setLocalLastUpdated(localData.lastUpdated || Date.now()); // Treat local as baseline if offline
                         setIsDataLoaded(true);
                     } else {
-                        // New user or empty state
                         setIsDataLoaded(true);
+                        setLocalLastUpdated(Date.now()); // New user baseline
                     }
                 };
                 load();
@@ -554,11 +555,11 @@
                     
                     try {
                         const data = await getGist(githubConfig.token, githubConfig.gistId);
-                        // MODIFIED: Added 2000ms buffer to avoid false positives (e.g. self-save latency)
+                        // MODIFIED: Added 2000ms buffer 
                         if (data && data.lastUpdated > lastUpdated + 2000) {
-                            // Found newer data! Auto-refresh safely
                             if (confirm("New data found in cloud. Refresh now to see latest changes?")) {
                                 applyData(data);
+                                setLocalLastUpdated(data.lastUpdated); // FIXED: Sync baseline on refresh
                                 console.log("Auto-refreshed from cloud");
                             } else {
                                 setConflictData(data); 
@@ -575,19 +576,15 @@
 
             // --- Feature 2: Safe Auto-Save with Pre-flight Check ---
             useEffect(() => {
-                // --- SAFETY BREAKER: Prevent saving if data wasn't loaded successfully ---
                 if (!isDataLoaded) return;
-                
-                // --- SAFETY BREAKER: Don't auto-save if we already know there is a conflict ---
                 if (showConflictAlert) return;
 
-                // Save to LocalStorage immediately (Always keep local backup fresh)
                 localStorage.setItem('diary_entries', JSON.stringify(entries));
                 localStorage.setItem('diary_todos', JSON.stringify(todos));
                 localStorage.setItem('diary_entry_colors', JSON.stringify(entryColors));
                 localStorage.setItem('diary_calendars', JSON.stringify(calendars));
                 localStorage.setItem('diary_theme', themeMode);
-                localStorage.setItem('diary_metadata', JSON.stringify({ lastUpdated })); // Save timestamp!
+                localStorage.setItem('diary_metadata', JSON.stringify({ lastUpdated })); 
 
                 if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
                 
@@ -599,14 +596,15 @@
                     saveTimeoutRef.current = setTimeout(async () => {
                         try {
                             if (githubConfig.token && githubConfig.gistId) {
-                                // 1. Pre-flight check: Get current cloud state
+                                // 1. Pre-flight check
                                 const cloudData = await getGist(githubConfig.token, githubConfig.gistId);
                                 
                                 if (!isCurrentSave) return;
 
                                 // 2. Check for conflict
-                                // MODIFIED: Added 2000ms buffer to prevent false positives due to clock skew or network latency
-                                if (cloudData && cloudData.lastUpdated > lastUpdated + 2000) {
+                                // FIXED: Added 'localLastUpdated > 0' check. 
+                                // If localLastUpdated is 0, it means we haven't established a baseline yet, so we shouldn't block the first save.
+                                if (localLastUpdated > 0 && cloudData && cloudData.lastUpdated > localLastUpdated + 2000) {
                                     setConflictData(cloudData); 
                                     setShowConflictAlert(true); 
                                     setSaveStatus('error'); 
@@ -615,15 +613,17 @@
                                 }
 
                                 // 3. No conflict? Proceed to save.
+                                const newTimestamp = Date.now();
                                 const dataToSave = { 
                                     calendars, entries, todos, entryColors, themeMode,
-                                    lastUpdated // Use the state's timestamp which tracks edits
+                                    lastUpdated: newTimestamp 
                                 };
                                 
                                 await updateGist(githubConfig.token, githubConfig.gistId, dataToSave);
                                 
                                 if (!isCurrentSave) return;
 
+                                setLocalLastUpdated(newTimestamp); // FIXED: Update baseline after successful save
                                 setLastSaved(new Date()); 
                                 setSaveStatus('saved');
                             }
@@ -640,11 +640,12 @@
                         if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
                     };
                 }
-            }, [entries, todos, entryColors, calendars, themeMode, githubConfig, isDataLoaded, lastUpdated, showConflictAlert]);
+            }, [entries, todos, entryColors, calendars, themeMode, githubConfig, isDataLoaded, lastUpdated, localLastUpdated, showConflictAlert]);
 
             const handleConflictRefresh = () => {
                 if (conflictData) {
                     applyData(conflictData);
+                    setLocalLastUpdated(conflictData.lastUpdated); // FIXED: Update baseline
                     setShowConflictAlert(false);
                     setConflictData(null);
                     setSaveStatus('saved'); 
@@ -660,8 +661,6 @@
                 if(!data) return;
                 if (data.calendars) setCalendars(data.calendars);
                 if (data.entries) setEntries(data.entries);
-                
-                // --- Fix: Restore cloud Todos (Migration Logic) ---
                 if (data.todos) {
                     if (Array.isArray(data.todos)) {
                         setTodos({ 'default': data.todos });
@@ -669,13 +668,11 @@
                         setTodos(data.todos);
                     }
                 }
-                
                 if (data.entryColors) setEntryColors(data.entryColors);
                 if (data.themeMode) setThemeMode(data.themeMode);
-                if (data.lastUpdated) setLastUpdated(data.lastUpdated); // Sync timestamp
+                if (data.lastUpdated) setLastUpdated(data.lastUpdated);
                 
                 if (data.calendars && data.calendars.length > 0) { 
-                    // Robust check for active calendar
                     if (!data.calendars.find(c => c.id === activeCalendarId)) {
                         setActiveCalendarId(data.calendars[0].id); 
                         setVisibleCalendarIds(new Set([data.calendars[0].id])); 
@@ -683,7 +680,7 @@
                 }
             };
 
-            // --- REFACTORED: Robust Auto-Lock Timer Logic ---
+            // ... (Auto-Lock Timer Logic remains the same) ...
             useEffect(() => {
                 const clearTimer = () => {
                     if (activityTimerRef.current) clearTimeout(activityTimerRef.current);
@@ -708,6 +705,7 @@
                 };
             }, [isLocked, autoLockDisabled]); 
 
+            // ... (Other useEffects remain the same) ...
             useEffect(() => {
                 const handleKeyDown = (e) => {
                     if (e.key === 'Escape' && view === 'day') {
@@ -718,7 +716,7 @@
                 return () => window.removeEventListener('keydown', handleKeyDown);
             }, [view, isMobileMode]);
 
-            // --- Handlers with Timestamp Updates ---
+            // ... (Handlers) ...
             const handleEntryChange = (dateStr, text) => {
                 setEntries(prev => ({ ...prev, [activeCalendarId]: { ...(prev[activeCalendarId] || {}), [dateStr]: text } }));
                 setLastUpdated(Date.now());
@@ -766,16 +764,18 @@
             };
 
             const handleConnectSuccess = (token, gistId, data) => {
-                if(data) applyData(data);
+                if(data) {
+                    applyData(data);
+                    // FIXED: Initialize localLastUpdated when connecting manually
+                    setLocalLastUpdated(data.lastUpdated || Date.now()); 
+                }
                 const config = { token, gistId };
                 setGithubConfig(config);
                 localStorage.setItem('diary_github_config', JSON.stringify(config));
                 setSaveStatus('saved');
             };
-
-            const handleCloudDisconnect = () => {
-                if(confirm("Disconnect cloud sync?")) {
-                    setGithubConfig({ token: '', gistId: '' });
+            
+            // ... (Rest of the component remains the same) ...
                     localStorage.removeItem('diary_github_config');
                     setIsCloudModalOpen(false);
                 }
