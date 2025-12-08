@@ -457,6 +457,10 @@
             const [localLastUpdated, setLocalLastUpdated] = useState(0); // My version timestamp
             const [conflictData, setConflictData] = useState(null); 
             const [showConflictAlert, setShowConflictAlert] = useState(false);
+            
+            // --- LOOP FIX: Use Ref to track localLastUpdated without triggering effects ---
+            const localLastUpdatedRef = useRef(localLastUpdated);
+            useEffect(() => { localLastUpdatedRef.current = localLastUpdated; }, [localLastUpdated]);
 
             const [githubConfig, setGithubConfig] = useState({ token: '', gistId: '' });
             const [saveStatus, setSaveStatus] = useState('idle');
@@ -555,11 +559,11 @@
                     
                     try {
                         const data = await getGist(githubConfig.token, githubConfig.gistId);
-                        // MODIFIED: Added 2000ms buffer 
-                        if (data && data.lastUpdated > lastUpdated + 2000) {
+                        // MODIFIED: Use Ref for comparison
+                        if (data && data.lastUpdated > localLastUpdatedRef.current + 2000) {
                             if (confirm("New data found in cloud. Refresh now to see latest changes?")) {
                                 applyData(data);
-                                setLocalLastUpdated(data.lastUpdated); // FIXED: Sync baseline on refresh
+                                setLocalLastUpdated(data.lastUpdated); 
                                 console.log("Auto-refreshed from cloud");
                             } else {
                                 setConflictData(data); 
@@ -572,12 +576,19 @@
 
                 window.addEventListener('focus', handleFocus);
                 return () => window.removeEventListener('focus', handleFocus);
-            }, [isDataLoaded, githubConfig, lastUpdated, showConflictAlert]);
+            }, [isDataLoaded, githubConfig, showConflictAlert]); // Removed localLastUpdated from deps
 
             // --- Feature 2: Safe Auto-Save with Pre-flight Check ---
             useEffect(() => {
                 if (!isDataLoaded) return;
                 if (showConflictAlert) return;
+                
+                // --- LOOP BREAKER: Don't save if we are already in sync ---
+                // If the last successful sync was AFTER the last user edit, skip saving.
+                if (localLastUpdatedRef.current >= lastUpdated) {
+                    if (saveStatus !== 'saved' && saveStatus !== 'error') setSaveStatus('saved');
+                    return;
+                }
 
                 localStorage.setItem('diary_entries', JSON.stringify(entries));
                 localStorage.setItem('diary_todos', JSON.stringify(todos));
@@ -601,10 +612,9 @@
                                 
                                 if (!isCurrentSave) return;
 
-                                // 2. Check for conflict
-                                // FIXED: Added 'localLastUpdated > 0' check. 
-                                // If localLastUpdated is 0, it means we haven't established a baseline yet, so we shouldn't block the first save.
-                                if (localLastUpdated > 0 && cloudData && cloudData.lastUpdated > localLastUpdated + 2000) {
+                                // 2. Check for conflict using Ref
+                                const currentBase = localLastUpdatedRef.current;
+                                if (currentBase > 0 && cloudData && cloudData.lastUpdated > currentBase + 2000) {
                                     setConflictData(cloudData); 
                                     setShowConflictAlert(true); 
                                     setSaveStatus('error'); 
@@ -623,7 +633,7 @@
                                 
                                 if (!isCurrentSave) return;
 
-                                setLocalLastUpdated(newTimestamp); // FIXED: Update baseline after successful save
+                                setLocalLastUpdated(newTimestamp); 
                                 setLastSaved(new Date()); 
                                 setSaveStatus('saved');
                             }
@@ -640,7 +650,8 @@
                         if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
                     };
                 }
-            }, [entries, todos, entryColors, calendars, themeMode, githubConfig, isDataLoaded, lastUpdated, localLastUpdated, showConflictAlert]);
+            // Removed localLastUpdated from dependency array to prevent infinite loop
+            }, [entries, todos, entryColors, calendars, themeMode, githubConfig, isDataLoaded, lastUpdated, showConflictAlert]);
 
             const handleConflictRefresh = () => {
                 if (conflictData) {
