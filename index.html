@@ -169,6 +169,56 @@
             return doc.body.textContent || "";
         };
 
+        // --- Helper: Highlight Text in HTML Safely ---
+        const highlightTextInHtml = (html, query) => {
+            if (!query || !query.trim() || !html) return html;
+            try {
+                const doc = new DOMParser().parseFromString(html, 'text/html');
+                const walk = document.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null, false);
+                let node;
+                const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+                const nodesToReplace = [];
+
+                while(node = walk.nextNode()) {
+                    if (node.nodeValue && regex.test(node.nodeValue)) {
+                        nodesToReplace.push({ node, text: node.nodeValue });
+                    }
+                }
+
+                nodesToReplace.forEach(({ node, text }) => {
+                    const fragment = document.createDocumentFragment();
+                    const parts = text.split(regex);
+                    parts.forEach(part => {
+                        if (part.toLowerCase() === query.toLowerCase()) {
+                            const mark = document.createElement('mark');
+                            // Using standard tailwind highlight classes + specific bg for contrast
+                            mark.className = "rounded-sm px-0.5 bg-yellow-200 dark:bg-yellow-600 text-black dark:text-white";
+                            mark.textContent = part;
+                            fragment.appendChild(mark);
+                        } else {
+                            fragment.appendChild(document.createTextNode(part));
+                        }
+                    });
+                    if (node.parentNode) node.parentNode.replaceChild(fragment, node);
+                });
+
+                return doc.body.innerHTML;
+            } catch (e) {
+                console.error("Highlight error", e);
+                return html;
+            }
+        };
+
+        const removeHighlights = (html) => {
+            if (!html) return '';
+            try {
+                // Remove <mark> tags but keep content
+                return html.replace(/<mark[^>]*>(.*?)<\/mark>/gi, '$1');
+            } catch (e) {
+                return html;
+            }
+        };
+
         // --- Constants ---
         const THEMES = {
             light: {
@@ -1025,18 +1075,26 @@
                                             );
                                         })}
                                         
-                                        {/* Editable Content Area */}
+                                        {/* Editable Content Area with Search Highlighting */}
                                         <div
                                             className={`w-full h-full text-xs md:text-sm leading-relaxed ${theme.text} break-words whitespace-pre-wrap outline-none overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-600 cursor-text`}
                                             contentEditable={true}
                                             suppressContentEditableWarning={true}
                                             onBlur={(e) => {
-                                                const html = e.currentTarget.innerHTML;
-                                                if (html !== (entries[activeCalendarId]?.[dateStr] || '')) {
-                                                    onEntryChange(dateStr, html);
+                                                const rawHtml = e.currentTarget.innerHTML;
+                                                // Clean highlights before saving to avoid persisting yellow marks in database
+                                                const cleanHtml = removeHighlights(rawHtml);
+                                                
+                                                // Only update if content actually changed (ignoring highlight tags difference)
+                                                // We compare cleanHtml with stored clean data
+                                                if (cleanHtml !== (entries[activeCalendarId]?.[dateStr] || '')) {
+                                                    onEntryChange(dateStr, cleanHtml);
                                                 }
                                             }}
-                                            dangerouslySetInnerHTML={{ __html: entries[activeCalendarId]?.[dateStr] || '' }}
+                                            dangerouslySetInnerHTML={{ 
+                                                // Apply highlighting on the fly for display
+                                                __html: highlightTextInHtml(entries[activeCalendarId]?.[dateStr] || '', searchQuery) 
+                                            }}
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 const now = Date.now();
