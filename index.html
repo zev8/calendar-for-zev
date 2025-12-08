@@ -105,7 +105,7 @@
             FolderOpen, Save, HardDrive, FileJson, RefreshCw, Link as LinkIcon, Palette,
             Cloud, Wifi, WifiOff, Copy, LogOut, FileDown, FileUp, LayoutGrid, Rows,
             Smartphone, Monitor, ArrowRight, Shield, ShieldAlert, CheckSquare, Circle, CheckCircle,
-            Image as ImageIcon, GripVertical, Flag
+            Image as ImageIcon, GripVertical, Flag, AlertTriangle, RefreshCcw
         } from 'lucide-react';
         import { 
             format, addMonths, subMonths, startOfMonth, endOfMonth, 
@@ -121,7 +121,8 @@
         
         const getGist = async (token, gistId) => {
             const res = await fetch(`https://api.github.com/gists/${gistId}`, {
-                headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' }
+                headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' },
+                cache: 'no-store' // Important: Ensure we get fresh data
             });
             if (!res.ok) throw new Error('Failed to fetch Gist');
             const data = await res.json();
@@ -130,6 +131,8 @@
         };
 
         const createGist = async (token, content) => {
+            // Add initial timestamp
+            content.lastUpdated = Date.now();
             const res = await fetch('https://api.github.com/gists', {
                 method: 'POST',
                 headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' },
@@ -272,6 +275,34 @@
         const PAGE_TRANSITION = { type: "tween", ease: "circOut", duration: 0.25 };
         const generateId = () => Math.random().toString(36).substr(2, 9);
 
+        // --- Conflict Alert Component ---
+        function ConflictAlert({ isOpen, onRefresh, onForceSave, onIgnore, theme }) {
+            if (!isOpen) return null;
+            return (
+                <div className="fixed bottom-4 right-4 z-[60] flex flex-col gap-2 p-4 rounded-xl shadow-2xl bg-white dark:bg-gray-800 border-l-4 border-red-500 max-w-sm animate-in slide-in-from-bottom-5 duration-300">
+                    <div className="flex items-start gap-3">
+                        <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-full text-red-600 dark:text-red-400">
+                            <AlertTriangle size={20} />
+                        </div>
+                        <div className="flex-1">
+                            <h3 className="font-bold text-sm text-gray-900 dark:text-white">Cloud Data Updated</h3>
+                            <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                                Newer data exists in the cloud. Saving now will overwrite remote changes.
+                            </p>
+                        </div>
+                    </div>
+                    <div className="flex gap-2 mt-2 justify-end">
+                        <button onClick={onIgnore} className="px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">
+                            Keep Local (Pause Sync)
+                        </button>
+                        <button onClick={onRefresh} className="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-1">
+                            <RefreshCcw size={12}/> Refresh & Discard Local
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
         // --- Camouflaged Lock Screen ---
         function LockScreen({ onUnlock, theme }) {
             const [password, setPassword] = useState('');
@@ -405,8 +436,6 @@
             
             const [currentDate, setCurrentDate] = useState(new Date());
             const [selectedDate, setSelectedDate] = useState(new Date());
-            // Added 'todo' to views
-            // Modified: Default to 'day' (Focus Mode) on all devices as requested
             const [view, setView] = useState('day');
             const [themeMode, setThemeMode] = useState('light');
             const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 768);
@@ -418,6 +447,11 @@
             
             // --- CRITICAL FIX: Data Load Safety Flag ---
             const [isDataLoaded, setIsDataLoaded] = useState(false);
+            
+            // --- Conflict Handling State ---
+            const [localLastUpdated, setLocalLastUpdated] = useState(0); // My version timestamp
+            const [conflictData, setConflictData] = useState(null); // If conflict, store the remote data here temporarily or just flag it
+            const [showConflictAlert, setShowConflictAlert] = useState(false);
 
             const [githubConfig, setGithubConfig] = useState({ token: '', gistId: '' });
             const [saveStatus, setSaveStatus] = useState('idle');
@@ -429,6 +463,7 @@
             const saveTimeoutRef = useRef(null);
             const activityTimerRef = useRef(null);
 
+            // --- Load Data ---
             useEffect(() => {
                 const load = async () => {
                     const savedTheme = localStorage.getItem('diary_theme');
@@ -442,6 +477,7 @@
                             const data = await getGist(ghConfig.token, ghConfig.gistId);
                             if (data) {
                                 applyData(data);
+                                setLocalLastUpdated(data.lastUpdated || Date.now()); // Sync timestamp
                                 setIsDataLoaded(true); // MARK AS LOADED ONLY ON SUCCESS
                                 setSaveStatus('saved');
                             } else {
@@ -450,7 +486,6 @@
                         } catch (e) { 
                             setSaveStatus('error'); 
                             console.error("Critical: Initial load failed. Auto-save disabled to prevent data loss.", e);
-                            // Do NOT set isDataLoaded(true) here. This is the safety breaker.
                         }
                     } else {
                         try {
@@ -483,27 +518,110 @@
                 load();
             }, []);
 
+            // --- Feature 1: Auto-check for updates on window focus ---
+            useEffect(() => {
+                const handleFocus = async () => {
+                    if (!isDataLoaded || !githubConfig.token || !githubConfig.gistId || showConflictAlert) return;
+                    
+                    try {
+                        const data = await getGist(githubConfig.token, githubConfig.gistId);
+                        if (data && data.lastUpdated > localLastUpdated) {
+                            // Found newer data! Auto-refresh safely
+                            if (confirm("New data found in cloud. Refresh now to see latest changes?")) {
+                                applyData(data);
+                                setLocalLastUpdated(data.lastUpdated);
+                                console.log("Auto-refreshed from cloud");
+                            } else {
+                                // User refused, we are now in a conflict state effectively
+                                setConflictData(data); // Stash it? Or just let the save logic handle it later
+                            }
+                        }
+                    } catch (e) {
+                        console.error("Auto-check failed", e);
+                    }
+                };
+
+                window.addEventListener('focus', handleFocus);
+                return () => window.removeEventListener('focus', handleFocus);
+            }, [isDataLoaded, githubConfig, localLastUpdated, showConflictAlert]);
+
+            // --- Feature 2: Safe Auto-Save with Pre-flight Check ---
             useEffect(() => {
                 // --- SAFETY BREAKER: Prevent saving if data wasn't loaded successfully ---
                 if (!isDataLoaded) return;
+                
+                // --- SAFETY BREAKER: Don't auto-save if we already know there is a conflict ---
+                if (showConflictAlert) return;
 
                 localStorage.setItem('diary_entries', JSON.stringify(entries));
                 localStorage.setItem('diary_todos', JSON.stringify(todos));
                 localStorage.setItem('diary_entry_colors', JSON.stringify(entryColors));
                 localStorage.setItem('diary_calendars', JSON.stringify(calendars));
                 localStorage.setItem('diary_theme', themeMode);
+                
                 if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+                
                 if (githubConfig.token) {
                     setSaveStatus('saving');
                     saveTimeoutRef.current = setTimeout(async () => {
-                        const data = { calendars, entries, todos, entryColors, themeMode }; // Save todos
                         try {
-                            if (githubConfig.token && githubConfig.gistId) await updateGist(githubConfig.token, githubConfig.gistId, data);
-                            setLastSaved(new Date()); setSaveStatus('saved');
-                        } catch (err) { setSaveStatus('error'); }
+                            if (githubConfig.token && githubConfig.gistId) {
+                                // 1. Pre-flight check: Get current cloud state
+                                const cloudData = await getGist(githubConfig.token, githubConfig.gistId);
+                                
+                                // 2. Check for conflict
+                                // If cloud has a timestamp AND it is newer than what we based our changes on
+                                // Note: We allow a small margin (e.g. self-save might have lag, but logic is simplified: if cloud > localLastUpdated)
+                                if (cloudData && cloudData.lastUpdated > localLastUpdated) {
+                                    // STOP! Conflict detected.
+                                    setConflictData(cloudData); // Store the newer data temporarily
+                                    setShowConflictAlert(true); // Show the floating alert
+                                    setSaveStatus('error'); // Indicate error
+                                    console.warn("Conflict detected. Save aborted.");
+                                    return; // ABORT SAVE
+                                }
+
+                                // 3. No conflict? Proceed to save.
+                                const newTimestamp = Date.now();
+                                const dataToSave = { 
+                                    calendars, entries, todos, entryColors, themeMode,
+                                    lastUpdated: newTimestamp 
+                                };
+                                
+                                await updateGist(githubConfig.token, githubConfig.gistId, dataToSave);
+                                
+                                setLocalLastUpdated(newTimestamp); // Update our local knowledge base
+                                setLastSaved(new Date()); 
+                                setSaveStatus('saved');
+                            }
+                        } catch (err) { 
+                            setSaveStatus('error'); 
+                            console.error("Save failed", err);
+                        }
                     }, 2000);
                 }
-            }, [entries, todos, entryColors, calendars, themeMode, githubConfig, isDataLoaded]);
+            }, [entries, todos, entryColors, calendars, themeMode, githubConfig, isDataLoaded, localLastUpdated, showConflictAlert]);
+
+            const handleConflictRefresh = () => {
+                if (conflictData) {
+                    applyData(conflictData);
+                    setLocalLastUpdated(conflictData.lastUpdated);
+                    setShowConflictAlert(false);
+                    setConflictData(null);
+                    setSaveStatus('saved'); // Reset status
+                }
+            };
+
+            const handleConflictIgnore = () => {
+                // Keep local, just hide alert. 
+                // Danger: Next manual save might overwrite cloud if we force it, 
+                // but for now we just stop auto-saving effectively until refresh or reload.
+                // Or we could update localLastUpdated to Date.now() to 'accept' local as newest?
+                // For safety: just hide alert, but auto-save will likely trigger conflict again unless we assume 'Force Push' logic.
+                // Here we just pause.
+                setShowConflictAlert(false);
+                setSaveStatus('error'); // Keep warning status
+            };
 
             const applyData = (data) => {
                 if(!data) return;
@@ -686,6 +804,14 @@
                         {isLocked && <LockScreen key="lock" onUnlock={() => setIsLocked(false)} theme={theme} />}
                     </AnimatePresence>
                     
+                    {/* --- Conflict Alert UI --- */}
+                    <ConflictAlert 
+                        isOpen={showConflictAlert} 
+                        onRefresh={handleConflictRefresh} 
+                        onIgnore={handleConflictIgnore} 
+                        theme={theme}
+                    />
+
                     <CloudSettingsModal isOpen={isCloudModalOpen} onClose={() => setIsCloudModalOpen(false)} config={githubConfig} onConnectSuccess={handleConnectSuccess} onDisconnect={handleCloudDisconnect} theme={theme} />
                     <input type="file" ref={importInputRef} style={{display:'none'}} accept=".json" onChange={handleImportBackup} />
 
