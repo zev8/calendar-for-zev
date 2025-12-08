@@ -680,14 +680,17 @@
                 }
             };
 
-            // ... (Auto-Lock Timer Logic remains the same) ...
+            // --- REFACTORED: Robust Auto-Lock Timer Logic ---
             useEffect(() => {
                 const clearTimer = () => {
                     if (activityTimerRef.current) clearTimeout(activityTimerRef.current);
                 };
 
                 const startTimer = () => {
+                    // Always clear existing timer first to prevent duplicates/zombies
                     clearTimer();
+                    
+                    // Only set a new timer if NOT locked AND Auto-Lock is ENABLED
                     if (!isLocked && !autoLockDisabled) {
                         activityTimerRef.current = setTimeout(() => {
                             setIsLocked(true);
@@ -695,13 +698,17 @@
                     }
                 };
 
+                // Initialize timer immediately when state changes (e.g., toggling the button)
                 startTimer();
+
                 const events = ['mousedown', 'keydown', 'touchstart', 'scroll'];
-                const handler = () => startTimer(); 
+                const handler = () => startTimer(); // Reset timer on user activity
+
                 events.forEach(e => window.addEventListener(e, handler));
+
                 return () => {
                     events.forEach(e => window.removeEventListener(e, handler));
-                    clearTimer(); 
+                    clearTimer(); // Cleanup on unmount or re-render
                 };
             }, [isLocked, autoLockDisabled]); 
 
@@ -774,8 +781,10 @@
                 localStorage.setItem('diary_github_config', JSON.stringify(config));
                 setSaveStatus('saved');
             };
-            
-            // ... (Rest of the component remains the same) ...
+
+            const handleCloudDisconnect = () => {
+                if(confirm("Disconnect cloud sync?")) {
+                    setGithubConfig({ token: '', gistId: '' });
                     localStorage.removeItem('diary_github_config');
                     setIsCloudModalOpen(false);
                 }
