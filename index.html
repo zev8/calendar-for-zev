@@ -126,8 +126,20 @@
             });
             if (!res.ok) throw new Error('Failed to fetch Gist');
             const data = await res.json();
-            const content = data.files[GIST_FILENAME]?.content;
-            return content ? JSON.parse(content) : null;
+            const file = data.files[GIST_FILENAME];
+            
+            if (!file) return null;
+
+            // --- FIXED: Handle Truncated Content (>1MB) ---
+            if (file.truncated) {
+                // If content is truncated by GitHub API, fetch the raw file
+                const rawRes = await fetch(file.raw_url, { cache: 'no-store' });
+                if (!rawRes.ok) throw new Error('Failed to fetch raw Gist content');
+                const rawText = await rawRes.text();
+                return JSON.parse(rawText);
+            }
+            
+            return file.content ? JSON.parse(file.content) : null;
         };
 
         const createGist = async (token, content) => {
@@ -287,16 +299,19 @@
                         <div className="flex-1">
                             <h3 className="font-bold text-sm text-gray-900 dark:text-white">Cloud Data Updated</h3>
                             <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                                Newer data exists in the cloud. Saving now will overwrite remote changes.
+                                The cloud version is newer. This might be a conflict or a sync delay.
                             </p>
                         </div>
                     </div>
-                    <div className="flex gap-2 mt-2 justify-end">
+                    <div className="flex gap-2 mt-2 justify-end flex-wrap">
                         <button onClick={onIgnore} className="px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">
-                            Keep Local (Pause Sync)
+                            Ignore (Pause)
                         </button>
-                        <button onClick={onRefresh} className="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-1">
-                            <RefreshCcw size={12}/> Refresh & Discard Local
+                        <button onClick={onRefresh} className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg flex items-center gap-1">
+                            <RefreshCcw size={12}/> Use Cloud
+                        </button>
+                        <button onClick={onForceSave} className="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-1 font-medium shadow-sm">
+                            <Upload size={12}/> Keep Local (Force)
                         </button>
                     </div>
                 </div>
@@ -462,6 +477,9 @@
             const localLastUpdatedRef = useRef(localLastUpdated);
             useEffect(() => { localLastUpdatedRef.current = localLastUpdated; }, [localLastUpdated]);
 
+            // --- LOCK FIX: Prevent overlapping saves ---
+            const isSavingRef = useRef(false);
+
             const [githubConfig, setGithubConfig] = useState({ token: '', gistId: '' });
             const [saveStatus, setSaveStatus] = useState('idle');
             const [lastSaved, setLastSaved] = useState(null);
@@ -584,7 +602,6 @@
                 if (showConflictAlert) return;
                 
                 // --- LOOP BREAKER: Don't save if we are already in sync ---
-                // If the last successful sync was AFTER the last user edit, skip saving.
                 if (localLastUpdatedRef.current >= lastUpdated) {
                     if (saveStatus !== 'saved' && saveStatus !== 'error') setSaveStatus('saved');
                     return;
@@ -604,7 +621,16 @@
                     
                     let isCurrentSave = true;
 
+                    // MODIFIED: Increased delay to 4000ms to reduce race conditions
                     saveTimeoutRef.current = setTimeout(async () => {
+                        // MODIFIED: Lock check
+                        if (isSavingRef.current) {
+                            console.log("Save skipped: Previous save still in progress");
+                            return; 
+                        }
+
+                        isSavingRef.current = true; // Acquire lock
+
                         try {
                             if (githubConfig.token && githubConfig.gistId) {
                                 // 1. Pre-flight check
@@ -642,8 +668,10 @@
                                 setSaveStatus('error'); 
                                 console.error("Save failed", err);
                             }
+                        } finally {
+                            isSavingRef.current = false; // Release lock
                         }
-                    }, 2000);
+                    }, 4000); // 4 seconds delay
 
                     return () => {
                         isCurrentSave = false;
@@ -656,11 +684,26 @@
             const handleConflictRefresh = () => {
                 if (conflictData) {
                     applyData(conflictData);
-                    setLocalLastUpdated(conflictData.lastUpdated); // FIXED: Update baseline
+                    setLocalLastUpdated(conflictData.lastUpdated); 
                     setShowConflictAlert(false);
                     setConflictData(null);
                     setSaveStatus('saved'); 
                 }
+            };
+
+            // NEW: Handle "Keep Local" (Force Push)
+            const handleConflictForceSave = () => {
+                // We simply update our local baseline timestamp to "now".
+                // This makes our local data appear "newer" than whatever triggered the conflict check.
+                // The next auto-save cycle (which triggers immediately due to state change) 
+                // will see localLastUpdated >= cloud, and proceed to overwrite the cloud.
+                const now = Date.now();
+                setLocalLastUpdated(now); 
+                setLastUpdated(now + 1); // Ensure lastUpdated is slightly ahead to trigger effect
+                setShowConflictAlert(false);
+                setConflictData(null);
+                setSaveStatus('saving'); // Re-trigger save
+                console.log("User chose to force keep local data.");
             };
 
             const handleConflictIgnore = () => {
@@ -854,6 +897,7 @@
                     <ConflictAlert 
                         isOpen={showConflictAlert} 
                         onRefresh={handleConflictRefresh} 
+                        onForceSave={handleConflictForceSave}
                         onIgnore={handleConflictIgnore} 
                         theme={theme}
                     />
